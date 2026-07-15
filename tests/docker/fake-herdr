@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+printf '%s\n' "$*" >>/tmp/herdr-commands.log
+
+case "${1:-} ${2:-}" in
+  "pane current")
+    printf '%s\n' '{"result":{"pane":{"pane_id":"nvim-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+    ;;
+  "pane edges")
+    printf '%s\n' '{"result":{"edges":{"layout":{"panes":[{"pane_id":"nvim-pane","rect":{"x":0,"y":0,"width":70,"height":40}},{"pane_id":"agent-pane","rect":{"x":70,"y":0,"width":30,"height":40}}]}}}}'
+    ;;
+  "pane split")
+    printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+    ;;
+  "pane get")
+    if [ -f /tmp/herdr-agent-spawned ]; then
+      printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+    else
+      exit 1
+    fi
+    ;;
+  "pane run")
+    touch /tmp/herdr-agent-spawned
+    printf '%s\n' '{"result":{}}'
+    ;;
+  "agent list")
+    if [ -f /tmp/herdr-agent-spawned ]; then
+      agent=$(cat /tmp/herdr-agent-name)
+      printf '{"result":{"agents":[{"agent":"%s","pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}]}}\n' "$agent"
+    else
+      printf '%s\n' '{"result":{"agents":[]}}'
+    fi
+    ;;
+  "agent focus"|"agent send"|"pane close")
+    printf '%s\n' '{"result":{}}'
+    ;;
+  "wait output")
+    exit 0
+    ;;
+  *)
+    printf '%s\n' '{"result":{}}'
+    ;;
+esac
