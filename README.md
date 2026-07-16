@@ -82,9 +82,16 @@ require("herdr-agents").setup({
 })
 ```
 
-The plugin adds `:ClaudeHerdrSendSelection` and
-`:ClaudeHerdrSendDiagnostics`. All other commands come from claudecode.nvim and
-codex.nvim.
+The plugin adds `:ClaudeHerdrSendSelection`,
+`:ClaudeHerdrSendDiagnostics`, and `:CodexHerdrSendDiagnostics`. Codex visual
+selections intentionally remain upstream-owned: use `:CodexSend` so
+codex.nvim retains its native selection tracking and file/range mention
+semantics. All other commands come from claudecode.nvim and codex.nvim.
+
+Both diagnostics commands proactively send the current buffer's diagnostics
+to the corresponding Herdr pane. This complements codex.nvim's `getDiagnostics`
+MCP tool, which lets Codex request diagnostics on demand rather than pushing
+them at the user's request.
 
 ## Lua API
 

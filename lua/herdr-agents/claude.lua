@@ -39,35 +39,7 @@ function M.setup(opts)
     end
   end, { range = true })
 
-  vim.api.nvim_create_user_command("ClaudeHerdrSendDiagnostics", function()
-    local diagnostics = vim.diagnostic.get(0)
-    if #diagnostics == 0 then
-      vim.notify("No diagnostics in current buffer", vim.log.levels.INFO)
-      return
-    end
-    local severity = vim.diagnostic.severity
-    local names = {
-      [severity.ERROR] = "ERROR",
-      [severity.WARN] = "WARN",
-      [severity.INFO] = "INFO",
-      [severity.HINT] = "HINT",
-    }
-    local file = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":~:.")
-    local lines = { "LSP diagnostics for " .. file .. ":" }
-    for _, item in ipairs(diagnostics) do
-      lines[#lines + 1] = ("  [%s] %d:%d  %s%s"):format(
-        names[item.severity] or "?",
-        item.lnum + 1,
-        item.col + 1,
-        item.message:gsub("\n", " "),
-        item.source and (" (" .. item.source .. ")") or ""
-      )
-    end
-    if not provider.send("\27[200~" .. table.concat(lines, "\n") .. "\27[201~") then
-      vim.notify("No Claude pane found", vim.log.levels.WARN)
-    end
-  end, {})
-
+  require("herdr-agents.diagnostics").register("ClaudeHerdrSendDiagnostics", provider, "Claude")
 end
 
 function M.open(args)

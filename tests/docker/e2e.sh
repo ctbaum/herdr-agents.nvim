@@ -1,7 +1,11 @@
 #!/bin/sh
+# JSON quotes in the launch-argument values are data, not shell syntax.
+# shellcheck disable=SC2089,SC2090
 set -eu
 
 mkdir -p "$HOME" "$XDG_CONFIG_HOME"
+
+nvim --headless -u NONE -l tests/diagnostics.lua
 
 for agent in claude codex; do
   rm -f /tmp/herdr-agent-spawned /tmp/herdr-commands.log
@@ -15,7 +19,7 @@ for agent in claude codex; do
   fi
 
   nvim --headless --cmd 'lua require("herdr-agents").setup()' \
-    "+lua vim.defer_fn(function() assert(vim.g.herdr_agents_ready == true, 'integration did not load'); assert(vim.fn.maparg('<leader>ac', 'n') == '', 'Claude mapping was installed'); assert(vim.fn.maparg('<leader>xx', 'n') == '', 'Codex mapping was installed'); vim.cmd('qa!') end, 1500)"
+    "+lua vim.defer_fn(function() assert(vim.g.herdr_agents_ready == true, 'integration did not load'); assert(vim.fn.maparg('<leader>ac', 'n') == '', 'Claude mapping was installed'); assert(vim.fn.maparg('<leader>xx', 'n') == '', 'Codex mapping was installed'); assert(vim.fn.exists(':ClaudeHerdrSendDiagnostics') == 2, 'Claude diagnostics command missing'); assert(vim.fn.exists(':CodexHerdrSendDiagnostics') == 2, 'Codex diagnostics command missing'); assert(vim.fn.exists(':CodexHerdrSendSelection') == 0, 'Codex selection should remain upstream-owned'); vim.cmd('qa!') end, 1500)"
 
   grep -q '^pane split nvim-pane ' /tmp/herdr-commands.log
   grep -q '^wait output agent-pane ' /tmp/herdr-commands.log

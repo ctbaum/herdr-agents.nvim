@@ -28,6 +28,7 @@ function M.setup(opts)
   })
   require("codex").setup(config)
 
+  require("herdr-agents.diagnostics").register("CodexHerdrSendDiagnostics", provider, "Codex")
 end
 
 function M.open(args)
