@@ -1,13 +1,14 @@
 # herdr-agents.nvim
 
-Run editor-integrated coding agents in real [Herdr](https://herdr.dev) sibling
-panes without losing their connection to Neovim.
+Run Claude Code and Codex as editor-integrated agents in real
+[Herdr](https://herdr.dev) sibling panes without losing their connection to
+Neovim.
 
-The upstream plugins continue to own their IDE/MCP servers, selections,
-diagnostics, file mentions, and native diff review. herdr-agents.nvim supplies a
-Herdr terminal provider that creates and controls the external pane, forwards
-the connection environment, and associates an agent with the correct Neovim
-process.
+herdr-agents.nvim bridges claudecode.nvim and codex.nvim into Herdr. Those
+plugins keep ownership of their IDE/MCP servers, selections, diagnostics, file
+mentions, and native diff review, while herdr-agents.nvim creates and controls
+the external panes, forwards connection details, and associates each agent with
+the correct Neovim process.
 
 It is a standalone Neovim plugin. It requires no workspace picker or companion
 binary, installs no mappings, and reserves no leader namespace.
