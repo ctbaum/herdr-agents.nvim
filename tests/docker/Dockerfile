@@ -2,7 +2,7 @@ FROM debian:bookworm-slim
 
 ARG TARGETARCH
 ARG NVIM_VERSION=v0.11.4
-ARG HERDR_VERSION=0.7.3
+ARG HERDR_VERSION=0.7.5
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git jq procps zsh \
@@ -34,8 +34,8 @@ RUN mkdir -p /tmp/xdg/data/nvim/site/pack/test/start \
      done \
     && install -m755 tests/docker/fake-herdr /usr/local/bin/herdr \
     && install -m755 tests/docker/real-nvim.sh /usr/local/bin/herdr-agents-real-nvim \
-    && ln -s /bin/true /usr/local/bin/claude \
-    && ln -s /bin/true /usr/local/bin/codex \
+    && install -m755 tests/docker/fake-agent /usr/local/bin/claude \
+    && install -m755 tests/docker/fake-agent /usr/local/bin/codex \
     && chmod +x tests/docker/e2e.sh
 
 ENV HOME=/tmp/home \
@@ -43,6 +43,6 @@ ENV HOME=/tmp/home \
     XDG_CONFIG_HOME=/tmp/xdg/config \
     HERDR_SOCKET_PATH=/tmp/herdr.sock \
     HERDR_PANE_ID=nvim-pane \
-    HERDR_NVIM_PROMPT_MATCH='$'
+    HERDR_NVIM_AGENT_START_TIMEOUT=8000
 
 ENTRYPOINT ["tests/docker/e2e.sh"]

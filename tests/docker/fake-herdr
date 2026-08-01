@@ -20,7 +20,7 @@ case "${1:-} ${2:-}" in
       exit 1
     fi
     ;;
-  "pane run")
+  "agent start")
     touch /tmp/herdr-agent-spawned
     printf '%s\n' '{"result":{}}'
     ;;
@@ -32,11 +32,14 @@ case "${1:-} ${2:-}" in
       printf '%s\n' '{"result":{"agents":[]}}'
     fi
     ;;
-  "agent focus"|"agent send"|"pane close")
+  "pane close")
+    if [ "${HERDR_FAKE_CLOSE_FAIL:-}" != 1 ]; then
+      rm -f /tmp/herdr-agent-spawned
+    fi
     printf '%s\n' '{"result":{}}'
     ;;
-  "wait output")
-    exit 0
+  "agent focus"|"agent prompt"|"pane send-text")
+    printf '%s\n' '{"result":{}}'
     ;;
   *)
     printf '%s\n' '{"result":{}}'

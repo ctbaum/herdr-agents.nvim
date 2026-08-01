@@ -34,7 +34,7 @@ function M.setup(opts)
     local first = (selected.selection.start.line or 0) + 1
     local last = (selected.selection["end"].line or 0) + 1
     local text = ("%s (lines %d-%d):\n```\n%s\n```"):format(name, first, last, selected.text)
-    if not provider.send("\27[200~" .. text .. "\27[201~") then
+    if not provider.paste("\27[200~" .. text .. "\27[201~") then
       vim.notify("No Claude pane found", vim.log.levels.WARN)
     end
   end, { range = true })

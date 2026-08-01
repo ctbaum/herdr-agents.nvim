@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+
+agent=$(basename "$0")
+sse=${CLAUDE_CODE_SSE_PORT:-${CODEX_CODE_SSE_PORT:-}}
+{
+  printf 'pane=%s\n' "${HERDR_PANE_ID:-}"
+  printf 'sse=%s\n' "$sse"
+  printf 'ide=%s\n' "${ENABLE_IDE_INTEGRATION:-}"
+} >"/tmp/herdr-agent-env-$agent"
+
+printf '%s' "$agent"
+for arg in "$@"; do
+  printf ' %s' "$arg"
+done
+printf '\n'
+
+while :; do
+  sleep 60
+done

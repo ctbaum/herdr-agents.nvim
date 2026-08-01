@@ -35,7 +35,7 @@ function M.register(command, provider, agent)
       vim.notify("No diagnostics in current buffer", vim.log.levels.INFO)
       return
     end
-    if not provider.send("\27[200~" .. payload .. "\27[201~") then
+    if not provider.paste("\27[200~" .. payload .. "\27[201~") then
       vim.notify("No " .. agent .. " pane found", vim.log.levels.WARN)
     end
   end, {})

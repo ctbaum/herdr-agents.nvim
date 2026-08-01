@@ -4,6 +4,84 @@ local function binary()
   return (vim.env.HERDR_BIN_PATH and vim.env.HERDR_BIN_PATH ~= "") and vim.env.HERDR_BIN_PATH or "herdr"
 end
 
+local function shell_words(command)
+  local words, word = {}, {}
+  local quote
+  local escaped = false
+  local started = false
+
+  local function finish()
+    if started then
+      words[#words + 1] = table.concat(word)
+      word = {}
+      started = false
+    end
+  end
+
+  for index = 1, #command do
+    local char = command:sub(index, index)
+    if escaped then
+      word[#word + 1] = char
+      escaped = false
+      started = true
+    elseif quote == "'" then
+      if char == "'" then
+        quote = nil
+      else
+        word[#word + 1] = char
+      end
+      started = true
+    elseif quote == '"' then
+      if char == '"' then
+        quote = nil
+      elseif char == "\\" then
+        escaped = true
+      else
+        word[#word + 1] = char
+      end
+      started = true
+    elseif char == "'" or char == '"' then
+      quote = char
+      started = true
+    elseif char == "\\" then
+      escaped = true
+      started = true
+    elseif char:match("%s") then
+      finish()
+    else
+      word[#word + 1] = char
+      started = true
+    end
+  end
+
+  if quote or escaped then
+    return nil, "unterminated quote or escape"
+  end
+  finish()
+  return words
+end
+
+local function agent_args(command, process)
+  local words, err = shell_words(command)
+  if not words then
+    return nil, err
+  end
+  if #words == 0 then
+    return nil, "empty agent command"
+  end
+  local executable = vim.fn.fnamemodify(words[1], ":t")
+  if executable ~= process then
+    return nil, ("expected %s executable, got %s"):format(process, words[1])
+  end
+  table.remove(words, 1)
+  return words
+end
+
+local function agent_name(agent, pane)
+  local suffix = pane:gsub("[^%w._-]", "-")
+  return ("nvim-%s-%s"):format(agent, suffix)
+end
+
 function M.json(args)
   local argv = vim.list_extend({ binary() }, vim.deepcopy(args))
   local out = vim.fn.system(argv)
@@ -110,6 +188,7 @@ end
 function M.provider(opts)
   local provider = {}
   local spawned_pane
+  local suppress_next_focus = false
 
   local function pane_exists(id)
     return id and M.json({ "pane", "get", id }) ~= nil
@@ -134,19 +213,40 @@ function M.provider(opts)
     end
   end
 
-  function provider.send(payload)
+  local function dispatch(scope, command, payload, should_focus)
     local id = provider.pane()
     if not id then
       return false
     end
-    vim.fn.system({ binary(), "agent", "send", id, payload })
-    provider.focus(id)
-    return vim.v.shell_error == 0
+    vim.fn.system({ binary(), scope, command, id, payload })
+    local ok = vim.v.shell_error == 0
+    if ok and should_focus ~= false then
+      provider.focus(id)
+    end
+    return ok
   end
+
+  function provider.paste(payload, config)
+    config = config or {}
+    return dispatch("pane", "send-text", payload, config.focus)
+  end
+
+  function provider.submit(payload, config)
+    config = config or {}
+    return dispatch("agent", "prompt", payload, config.focus)
+  end
+
+  -- Compatibility for callers of the original public API. New code should
+  -- choose paste() or submit() explicitly.
+  provider.send = provider.paste
 
   function provider.setup() end
 
   function provider.open(cmd, env, _, should_focus)
+    if suppress_next_focus then
+      should_focus = false
+      suppress_next_focus = false
+    end
     local existing = provider.pane()
     if existing then
       if should_focus then
@@ -175,24 +275,39 @@ function M.provider(opts)
       vim.notify(opts.agent .. ": Herdr could not create the agent pane", vim.log.levels.ERROR)
       return false
     end
-    local prompt = vim.env.HERDR_NVIM_PROMPT_MATCH or "➜"
     local new_pane = spawned_pane
-    local function launch()
-      vim.fn.jobstart({ binary(), "pane", "run", new_pane, cmd }, {
-        detach = true,
-        on_exit = function()
-          if should_focus then
-            vim.schedule(function() provider.focus(new_pane) end)
-          end
-        end,
-      })
+    local launch_args, parse_error = agent_args(cmd, opts.process)
+    if not launch_args then
+      vim.notify(("%s: cannot launch through Herdr: %s"):format(opts.agent, parse_error), vim.log.levels.ERROR)
+      provider.close()
+      return false
     end
-    local waiter = vim.fn.jobstart(
-      { binary(), "wait", "output", new_pane, "--match", prompt, "--timeout", "8000" },
-      { on_exit = function() vim.schedule(launch) end }
-    )
-    if waiter <= 0 then
-      launch()
+    local timeout = vim.env.HERDR_NVIM_AGENT_START_TIMEOUT or "30000"
+    local argv = {
+      binary(), "agent", "start", agent_name(opts.agent, new_pane),
+      "--kind", opts.agent, "--pane", new_pane, "--timeout", timeout,
+    }
+    if #launch_args > 0 then
+      argv[#argv + 1] = "--"
+      vim.list_extend(argv, launch_args)
+    end
+    local job = vim.fn.jobstart(argv, {
+      detach = true,
+      on_exit = function(_, code)
+        vim.schedule(function()
+          if code ~= 0 then
+            vim.notify(("%s: herdr agent start exited with status %d"):format(opts.agent, code), vim.log.levels.ERROR)
+            provider.close()
+          elseif should_focus then
+            provider.focus(new_pane)
+          end
+        end)
+      end,
+    })
+    if job <= 0 then
+      vim.notify(opts.agent .. ": Herdr could not start the agent", vim.log.levels.ERROR)
+      provider.close()
+      return false
     end
     return true
   end
@@ -203,6 +318,10 @@ function M.provider(opts)
       M.json({ "pane", "close", id })
     end
     spawned_pane = nil
+  end
+
+  function provider.suppress_focus_once()
+    suppress_next_focus = true
   end
 
   function provider.simple_toggle(cmd, env, config)
@@ -225,5 +344,8 @@ function M.provider(opts)
 
   return provider
 end
+
+M.shell_words = shell_words
+M.agent_args = agent_args
 
 return M

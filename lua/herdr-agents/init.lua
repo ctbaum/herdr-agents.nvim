@@ -16,6 +16,7 @@ function M.setup(opts)
   opts = vim.tbl_deep_extend("force", {
     claude = { enabled = true, opts = {} },
     codex = { enabled = true, opts = {} },
+    review = { enabled = false, opts = {} },
   }, opts or {})
 
   if opts.claude.enabled then
@@ -27,6 +28,13 @@ function M.setup(opts)
     dependency("codex", "ishiooon/codex.nvim")
     adapters.codex = require("herdr-agents.codex")
     adapters.codex.setup(opts.codex.opts)
+  end
+  if opts.review.enabled then
+    require("herdr-agents.review").setup(opts.review.opts, {
+      agents = M.enabled_agents,
+      paste = M.paste,
+      submit = M.submit,
+    })
   end
   local agent = vim.env.HERDR_NVIM_AGENT
   local launch_args
@@ -64,6 +72,25 @@ function M.open(agent, args)
   return adapter(agent).open(args or {})
 end
 
+function M.pane(agent)
+  local provider = adapter(agent).provider
+  return provider and provider.pane() or nil
+end
+
+function M.reconnect(agent, args)
+  local value = adapter(agent)
+  local provider = value.provider
+  if not provider then
+    return false
+  end
+  provider.close()
+  if provider.pane() then
+    return false
+  end
+  provider.suppress_focus_once()
+  return value.open(args or {})
+end
+
 function M.focus(agent)
   local provider = adapter(agent).provider
   local pane = provider and provider.pane()
@@ -74,9 +101,23 @@ function M.focus(agent)
   return false
 end
 
-function M.send(agent, payload)
-  local provider = adapter(agent).provider
-  return provider and provider.send(payload) or false
+function M.enabled_agents()
+  local result = vim.tbl_keys(adapters)
+  table.sort(result)
+  return result
 end
+
+function M.paste(agent, payload, opts)
+  local provider = adapter(agent).provider
+  return provider and provider.paste(payload, opts) or false
+end
+
+function M.submit(agent, payload, opts)
+  local provider = adapter(agent).provider
+  return provider and provider.submit(payload, opts) or false
+end
+
+-- Compatibility with the original API. Call paste() or submit() in new code.
+M.send = M.paste
 
 return M

@@ -21,7 +21,7 @@ binary, installs no mappings, and reserves no leader namespace.
 ## Requirements
 
 - Neovim 0.10+
-- Herdr and its `herdr` CLI
+- Herdr 0.7.5+ and its `herdr` CLI
 - The upstream plugin for each enabled agent
 - [`folke/snacks.nvim`](https://github.com/folke/snacks.nvim), required by the
   upstream plugins
@@ -80,6 +80,10 @@ require("herdr-agents").setup({
     enabled = true,
     opts = { focus_after_send = false },
   },
+  review = {
+    enabled = false,
+    opts = { clear_after_submit = true, snippet_lines = 5 },
+  },
 })
 ```
 
@@ -105,12 +109,39 @@ agents.open("claude")
 agents.open("claude", { "--resume", session_id })
 agents.open("codex", { "resume", session_id })
 agents.focus("codex")
-agents.send("claude", "Please review the current diagnostics")
+local pane_id = agents.pane("claude")
+agents.reconnect("claude", { "--resume", session_id })
+agents.paste("claude", "Please review the current diagnostics")
+agents.submit("codex", "Run the tests and fix any failures")
 ```
 
 `open()` creates the sibling pane or focuses the already-connected pane. The
 argument list is encoded safely by the adapter rather than interpreted as a
-shell command.
+shell command. `pane()` returns the currently associated Herdr pane ID.
+`reconnect()` closes that pane and creates a replacement using the supplied
+arguments without stealing editor focus. It is intended for a surviving
+Neovim process that needs to reconnect an agent after a Herdr server restart.
+`paste()` inserts text without submitting it; `submit()` sends an atomic prompt
+through Herdr. `send()` remains as a compatibility alias for `paste()`.
+
+## Optional review queue
+
+Enable `review.enabled` to queue comments on several code ranges before sending
+one structured review prompt. The feature adds no mappings. It registers:
+
+| command | action |
+|---|---|
+| `:HerdrReviewComment` | comment the current line or visual/ranged lines |
+| `:HerdrReviewList` | list queued comments and jump to one |
+| `:HerdrReviewPaste [agent]` | paste the review prompt without clearing it |
+| `:HerdrReviewSubmit [agent]` | submit the review prompt, clearing on success by default |
+| `:HerdrReviewClear` | discard all queued comments |
+
+The Lua module `require("herdr-agents.review")` exposes `add()`, `get()`,
+`list()`, `edit()`, `delete()`, `clear()`, `prompt()`, `paste()`, `submit()`,
+and `statusline()`. Comments are kept in memory and track buffer edits with
+extmarks. `paste()` and `submit()` may open an asynchronous agent picker and do
+not return delivery status; failures are reported through Neovim notifications.
 
 ## Automatic launch contract
 
@@ -120,8 +151,8 @@ Any launcher can request an agent when Neovim starts by setting:
 |---|---|
 | `HERDR_NVIM_AGENT` | `claude` or `codex` |
 | `HERDR_NVIM_AGENT_ARGS_JSON` | JSON array of individual CLI arguments; defaults to `[]` |
-| `HERDR_NVIM_PROMPT_MATCH` | stable shell-prompt text awaited before launch; defaults to `➜` |
 | `HERDR_BIN_PATH` | optional alternative Herdr executable |
+| `HERDR_NVIM_AGENT_START_TIMEOUT` | optional `herdr agent start` timeout in milliseconds; defaults to `30000` |
 
 For example:
 
@@ -131,7 +162,10 @@ HERDR_NVIM_AGENT_ARGS_JSON='["--resume","session-id"]' \
 nvim
 ```
 
-The provider first matches the upstream IDE/MCP port in the agent process
+The provider uses `herdr agent start` to wait for the new pane's interactive
+shell, launch the supported agent, and verify that Herdr detects it. The pane
+inherits the upstream IDE/MCP environment created by Neovim. After launch, the
+provider first matches the IDE/MCP port in the agent process
 environment to recover its exact `HERDR_PANE_ID`. Same-tab geometry is only a
 startup fallback, which keeps multiple editors in one workspace from
 controlling one another.
