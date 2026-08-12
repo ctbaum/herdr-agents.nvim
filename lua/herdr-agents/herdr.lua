@@ -291,25 +291,45 @@ function M.provider(opts)
       argv[#argv + 1] = "--"
       vim.list_extend(argv, launch_args)
     end
-    local job = vim.fn.jobstart(argv, {
-      detach = true,
-      on_exit = function(_, code)
-        vim.schedule(function()
-          if code ~= 0 then
-            vim.notify(("%s: herdr agent start exited with status %d"):format(opts.agent, code), vim.log.levels.ERROR)
-            provider.close()
-          elseif should_focus then
-            provider.focus(new_pane)
-          end
-        end)
-      end,
-    })
-    if job <= 0 then
-      vim.notify(opts.agent .. ": Herdr could not start the agent", vim.log.levels.ERROR)
-      provider.close()
-      return false
+    -- Herdr rejects agent starts with agent_pane_busy until the freshly
+    -- split pane reaches its interactive shell prompt, so retry while that
+    -- is the only failure.
+    local attempts = 0
+    local function start()
+      attempts = attempts + 1
+      local output = {}
+      local function collect(_, data)
+        if data then
+          output[#output + 1] = table.concat(data, "")
+        end
+      end
+      local job = vim.fn.jobstart(argv, {
+        detach = true,
+        on_stdout = collect,
+        on_stderr = collect,
+        on_exit = function(_, code)
+          vim.schedule(function()
+            if code == 0 then
+              if should_focus then
+                provider.focus(new_pane)
+              end
+            elseif attempts < 15 and table.concat(output):find("agent_pane_busy", 1, true) then
+              vim.defer_fn(start, 300)
+            else
+              vim.notify(("%s: herdr agent start exited with status %d"):format(opts.agent, code), vim.log.levels.ERROR)
+              provider.close()
+            end
+          end)
+        end,
+      })
+      if job <= 0 then
+        vim.notify(opts.agent .. ": Herdr could not start the agent", vim.log.levels.ERROR)
+        provider.close()
+        return false
+      end
+      return true
     end
-    return true
+    return start()
   end
 
   function provider.close()
