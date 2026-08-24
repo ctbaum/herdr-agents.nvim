@@ -78,7 +78,8 @@ local function agent_args(command, process)
 end
 
 local function agent_name(agent, pane)
-  local suffix = pane:gsub("[^%w._-]", "-")
+  -- Herdr agent names allow only lowercase letters, digits, '-' and '_'.
+  local suffix = pane:lower():gsub("[^%l%d_-]", "-")
   return ("nvim-%s-%s"):format(agent, suffix)
 end
 
@@ -316,7 +317,12 @@ function M.provider(opts)
             elseif attempts < 15 and table.concat(output):find("agent_pane_busy", 1, true) then
               vim.defer_fn(start, 300)
             else
-              vim.notify(("%s: herdr agent start exited with status %d"):format(opts.agent, code), vim.log.levels.ERROR)
+              local detail = table.concat(output):gsub("%s+$", "")
+              vim.notify(
+                ("%s: herdr agent start exited with status %d%s")
+                  :format(opts.agent, code, detail ~= "" and (": " .. detail) or ""),
+                vim.log.levels.ERROR
+              )
               provider.close()
             end
           end)

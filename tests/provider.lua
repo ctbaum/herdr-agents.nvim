@@ -32,7 +32,7 @@ herdr.json = function(argv)
     return { result = { type = "ok" } }
   elseif argv[1] == "pane" and argv[2] == "split" then
     pane_exists = true
-    return { result = { pane = { pane_id = "w1:p3" } } }
+    return { result = { pane = { pane_id = "w4W:p3" } } }
   end
   return nil
 end
@@ -51,12 +51,13 @@ assert(provider.pane() == "w1:p2")
 provider.close()
 assert(not pane_exists)
 assert(provider.open("claude --resume session-1", { CLAUDE_CODE_SSE_PORT = "4567" }, nil, false))
-assert(provider.pane() == "w1:p3")
+assert(provider.pane() == "w4W:p3")
 assert(vim.iter(calls):any(function(call)
   return vim.deep_equal(call, { "pane", "close", "w1:p2" })
 end))
 assert(vim.iter(calls):any(function(call)
   return call[1] == "herdr" and call[2] == "agent" and call[3] == "start"
+    and call[4]:match("^nvim%-claude%-[%l%d_-]+$")
     and call[#call - 1] == "--resume" and call[#call] == "session-1"
 end))
 
