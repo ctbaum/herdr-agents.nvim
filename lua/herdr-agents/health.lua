@@ -13,9 +13,12 @@ end
 
 function M.check()
   vim.health.start("herdr-agents.nvim")
+  local enabled = vim.g.herdr_agents_ready and require("herdr-agents").enabled_agents() or { "claude", "codex" }
+  local needs_herdr = (vim.env.HERDR_SOCKET_PATH or "") ~= ""
+    or vim.tbl_contains(enabled, "claude") or vim.tbl_contains(enabled, "codex")
   local herdr = (vim.env.HERDR_BIN_PATH and vim.env.HERDR_BIN_PATH ~= "") and vim.env.HERDR_BIN_PATH or "herdr"
-  executable(herdr, true)
-  if vim.fn.executable(herdr) == 1 then
+  if needs_herdr then executable(herdr, true) end
+  if needs_herdr and vim.fn.executable(herdr) == 1 then
     local result = vim.system({ herdr, "--version" }, { text = true }):wait()
     local major, minor, patch = (result.stdout or ""):match("(%d+)%.(%d+)%.(%d+)")
     local supported = major and ({ tonumber(major), tonumber(minor), tonumber(patch) }) or nil
@@ -27,17 +30,21 @@ function M.check()
       vim.health.error("Herdr 0.7.5 or newer is required for agent start and prompt")
     end
   end
-  executable("claude", false)
-  executable("codex", false)
-
-  for module, repository in pairs({
-    claudecode = "coder/claudecode.nvim",
-    codex = "ishiooon/codex.nvim",
-  }) do
-    if pcall(require, module) then
-      vim.health.ok(repository .. " is available")
+  local dependencies = {
+    claude = { module = "claudecode", repository = "coder/claudecode.nvim" },
+    codex = { module = "codex", repository = "ishiooon/codex.nvim" },
+    pi = { module = "pi-ide", repository = "ldelossa/pi-ide.nvim" },
+  }
+  for agent, dependency in pairs(dependencies) do
+    if vim.tbl_contains(enabled, agent) then
+      executable(agent, false)
+      if pcall(require, dependency.module) then
+        vim.health.ok(dependency.repository .. " is available")
+      else
+        vim.health.error(dependency.repository .. " is unavailable")
+      end
     else
-      vim.health.error(repository .. " is unavailable")
+      vim.health.info(agent .. " adapter is disabled")
     end
   end
 
