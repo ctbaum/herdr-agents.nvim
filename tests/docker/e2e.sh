@@ -9,6 +9,8 @@ nvim --headless -u NONE -l tests/diagnostics.lua
 nvim --headless -u NONE -l tests/health.lua
 nvim --headless -u NONE -l tests/provider.lua
 nvim --headless -u NONE -l tests/review.lua
+nvim --headless -u NONE -l tests/pi.lua
+nvim --headless -u NONE -l tests/terminal.lua
 
 for agent in claude codex; do
   rm -f /tmp/herdr-agent-spawned /tmp/herdr-commands.log

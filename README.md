@@ -1,6 +1,6 @@
 # herdr-agents.nvim
 
-Run Claude Code and Codex as editor-integrated agents in real
+Run Claude Code, Codex, and Pi as editor-integrated agents in real
 [Herdr](https://herdr.dev) sibling panes without losing their connection to
 Neovim.
 
@@ -17,6 +17,8 @@ binary, installs no mappings, and reserves no leader namespace.
 
 - Claude Code via [`coder/claudecode.nvim`](https://github.com/coder/claudecode.nvim)
 - Codex via [`ishiooon/codex.nvim`](https://github.com/ishiooon/codex.nvim)
+- Pi via [`ldelossa/pi-ide.nvim`](https://github.com/ldelossa/pi-ide.nvim)
+  and its [`pi-ide` extension](https://github.com/ldelossa/pi-ide)
 
 ## Requirements
 
@@ -28,14 +30,14 @@ binary, installs no mappings, and reserves no leader namespace.
 - `pgrep`, `ps` or Linux `/proc`, `grep`, `sed`, `tr`, and `sh` for
   connection-true pane identity
 
-Only enable this plugin inside Herdr. Outside Herdr, configure the upstream
-plugins normally.
+Enable the Claude and Codex adapters only inside Herdr. Outside Herdr,
+configure those upstream plugins normally. The Pi adapter also works outside
+Herdr using a native Neovim terminal.
 
 ## Install with lazy.nvim
 
 ```lua
-local inside_herdr = vim.env.HERDR_SOCKET_PATH
-  and vim.env.HERDR_SOCKET_PATH ~= ""
+local inside_herdr = (vim.env.HERDR_SOCKET_PATH or "") ~= ""
 
 return {
   {
@@ -67,7 +69,7 @@ dependencies.
 
 ## Configuration
 
-Both integrations are enabled by default. Their `opts` tables are passed to the
+Claude and Codex are enabled by default; Pi is opt-in. Their `opts` tables are passed to the
 upstream plugin setup; the Herdr terminal provider itself is always retained.
 
 ```lua
@@ -86,6 +88,55 @@ require("herdr-agents").setup({
   },
 })
 ```
+
+## Pi IDE integration
+
+Install `ldelossa/pi-ide.nvim` with your plugin manager and install the matching
+Pi extension with `pi install npm:@ldelossa/pi-ide`. Let this adapter perform
+the Neovim plugin setup, rather than configuring it twice:
+
+```lua
+require("herdr-agents").setup({
+  claude = { enabled = false },
+  codex = { enabled = false },
+  pi = { enabled = true },
+  review = { enabled = true },
+})
+```
+
+`:Pi [arguments...]` launches the interactive CLI after starting the IDE server.
+`:PiFocus` focuses that editor's Pi pane (or terminal outside Herdr). A private
+per-editor lock directory is passed as `PI_IDE_LOCK_DIR`, so two editors in the
+same project cannot accidentally connect to each other. Herdr pane identity
+uses `HERDR_PI_IDE_PORT`; the Pi provider does not adopt unrelated existing
+panes by their position. Existing sessions are left alone.
+
+| Command | Action |
+| --- | --- |
+| `:[range]PiSendSelection` | Paste selected buffer lines, including unsaved text |
+| `:PiAdd` | Paste the current file's path |
+| `:PiSendDiagnostics` | Paste current-buffer LSP diagnostics |
+| `:PiDiffAccept` / `:PiDiffDeny` | Accept or reject the proposal in the current tab |
+| `:PiStatus` | Show IDE connection status |
+| `:PiSuggest` / `:PiSuggestModel` | Request an inline suggestion or choose its model |
+
+Context commands paste without submitting, giving you a chance to edit the
+prompt. The extension also receives live cursor/selection context, provides
+editor diagnostics and open tabs, and previews its `write`/`edit` tool calls
+as interactive diffs. You can edit the proposed text before accepting it.
+Save the proposed buffer to accept; close a diff window to reject.
+
+Automatic suggestions and their default mappings are disabled. Opt in with
+`pi.opts.suggestion`, or map `require("pi-ide.suggestion").trigger()` and
+`.accept_all()` yourself. Suggestions make model calls through the connected
+Pi session. Claude compatibility is disabled, so this adapter never creates
+Claude lockfiles. Review comments also work through the shared
+`:HerdrReviewComment` and `:HerdrReviewPaste` commands.
+
+IDE review is not a sandbox: it covers the extension's connected `write`/`edit`
+path, not arbitrary shell writes. The upstream extension can fall back to
+normal tool execution when disconnected or when a preview fails. Check
+`:PiStatus` before relying on interactive review.
 
 The plugin adds `:ClaudeHerdrSendSelection`,
 `:ClaudeHerdrSendDiagnostics`, and `:CodexHerdrSendDiagnostics`. Codex visual
@@ -177,6 +228,13 @@ contract to recreate its opinionated editor/agent/terminal workspaces. It is an
 optional consumer, not a dependency of this plugin.
 
 ## Test
+
+Run Lua unit tests with `nvim --headless -u NONE -l tests/<name>.lua`.
+The optional `pi-ide.lua` and `pi-launch.lua` tests require
+`PI_IDE_NVIM_PATH` pointing to the upstream Neovim plugin and
+`PI_IDE_EXTENSION_PATH` pointing to the installed extension (including its
+Node dependencies). They exercise the real authenticated protocol and an
+ephemeral Pi launch without model calls. Node 22.19+ is required.
 
 The Docker test starts from an isolated Neovim configuration, exercises both
 providers against a deterministic Herdr stub, and then verifies sibling-pane

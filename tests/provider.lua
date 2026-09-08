@@ -48,6 +48,13 @@ local provider = herdr.provider({
   port = function() return nil end,
 })
 assert(provider.pane() == "w1:p2")
+local isolated = herdr.provider({
+  agent = "claude",
+  process = "claude",
+  port = function() return nil end,
+  reuse_scoped_pane = false,
+})
+assert(isolated.pane() == nil, "an isolated provider must not adopt another editor's agent")
 provider.close()
 assert(not pane_exists)
 assert(provider.open("claude --resume session-1", { CLAUDE_CODE_SSE_PORT = "4567" }, nil, false))

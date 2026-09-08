@@ -204,7 +204,7 @@ function M.provider(opts)
     if pane_exists(spawned_pane) then
       return spawned_pane
     end
-    spawned_pane = scoped_pane(opts.agent)
+    spawned_pane = opts.reuse_scoped_pane ~= false and scoped_pane(opts.agent) or nil
     return spawned_pane
   end
 

@@ -16,6 +16,7 @@ function M.setup(opts)
   opts = vim.tbl_deep_extend("force", {
     claude = { enabled = true, opts = {} },
     codex = { enabled = true, opts = {} },
+    pi = { enabled = false, opts = {} },
     review = { enabled = false, opts = {} },
   }, opts or {})
 
@@ -28,6 +29,11 @@ function M.setup(opts)
     dependency("codex", "ishiooon/codex.nvim")
     adapters.codex = require("herdr-agents.codex")
     adapters.codex.setup(opts.codex.opts)
+  end
+  if opts.pi.enabled then
+    dependency("pi-ide", "ldelossa/pi-ide.nvim")
+    adapters.pi = require("herdr-agents.pi")
+    adapters.pi.setup(opts.pi.opts)
   end
   if opts.review.enabled then
     require("herdr-agents.review").setup(opts.review.opts, {
