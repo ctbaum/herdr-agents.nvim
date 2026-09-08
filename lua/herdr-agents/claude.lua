@@ -10,6 +10,7 @@ function M.setup(opts)
       local ok, plugin = pcall(require, "claudecode")
       return ok and plugin.state and plugin.state.port or nil
     end,
+    connected = function() return require("claudecode").is_claude_connected() end,
   })
   M.provider = provider
 
@@ -23,9 +24,10 @@ function M.setup(opts)
   }, opts or {}, { terminal = { provider = provider } })
   require("claudecode").setup(config)
 
-  vim.api.nvim_create_user_command("ClaudeHerdrSendSelection", function()
-    local ok, selection = pcall(require, "claudecode.selection")
-    local selected = ok and selection.get_visual_selection and selection.get_visual_selection()
+  vim.api.nvim_create_user_command("ClaudeHerdrSendSelection", function(command)
+    local selection = require("claudecode.selection")
+    local selected = command.range > 0 and selection.get_range_selection(command.line1, command.line2)
+      or selection.get_visual_selection()
     if not (selected and selected.text and selected.text ~= "") then
       vim.cmd("ClaudeCodeSend")
       return
@@ -34,7 +36,7 @@ function M.setup(opts)
     local first = (selected.selection.start.line or 0) + 1
     local last = (selected.selection["end"].line or 0) + 1
     local text = ("%s (lines %d-%d):\n```\n%s\n```"):format(name, first, last, selected.text)
-    if not provider.paste("\27[200~" .. text .. "\27[201~") then
+    if not provider.paste(text) then
       vim.notify("No Claude pane found", vim.log.levels.WARN)
     end
   end, { range = true })
@@ -50,7 +52,8 @@ function M.open(args)
   end
   local escaped = vim.tbl_map(vim.fn.shellescape, args or {})
   local suffix = #escaped > 0 and (" " .. table.concat(escaped, " ")) or ""
-  return pcall(vim.cmd, "ClaudeCode" .. suffix)
+  local ok = pcall(function() vim.cmd("ClaudeCode" .. suffix) end)
+  return ok and M.provider.pane() ~= nil
 end
 
 return M

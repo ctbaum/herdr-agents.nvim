@@ -83,13 +83,18 @@ function M.pane(agent)
   return provider and provider.pane() or nil
 end
 
+function M.status(agent)
+  local provider = adapter(agent).provider
+  return provider.status()
+end
+
 function M.reconnect(agent, args)
   local value = adapter(agent)
   local provider = value.provider
   if not provider then
     return false
   end
-  provider.close()
+  if provider.close() == false then return false end
   if provider.pane() then
     return false
   end

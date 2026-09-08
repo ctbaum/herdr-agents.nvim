@@ -2,7 +2,7 @@ local M = {}
 local lock_dir
 
 local function paste(payload)
-  if not M.provider.paste("\27[200~" .. payload .. "\27[201~") then
+  if not M.provider.paste(payload) then
     vim.notify("Open Pi with :Pi before sending context", vim.log.levels.WARN)
     return false
   end
@@ -46,12 +46,13 @@ function M.open(args)
   return M.provider.open(table.concat(vim.tbl_map(vim.fn.shellescape, command), " "), {
     PI_IDE_LOCK_DIR = lock_dir,
     HERDR_PI_IDE_PORT = tostring(ide.state.port),
+    PI_IDE_STRICT_REVIEW = "1",
   }, nil, true)
 end
 
 function M.setup(opts)
   lock_dir = vim.fn.tempname() .. "-pi-ide"
-  vim.fn.mkdir(lock_dir, "p", 448)
+  assert(vim.uv.fs_mkdir(lock_dir, 448))
   require("pi-ide.lockfile").lock_dir = lock_dir
   require("pi-ide").setup(vim.tbl_deep_extend("force", {
     suggestion = { auto_trigger = false, default_keys = false },
@@ -62,17 +63,12 @@ function M.setup(opts)
       process = "pi",
       port_env = "HERDR_PI_IDE_PORT",
       port = function() return require("pi-ide").state.port end,
-      reuse_scoped_pane = false,
+      connected = function() return require("pi-ide.server.init").get_status().client_count > 0 end,
     })
   else
-    M.provider = require("herdr-agents.terminal").provider()
-  end
-  local raw_paste = M.provider.paste
-  M.provider.paste = function(payload, config)
-    if payload:sub(1, 6) == "\27[200~" and payload:sub(-6) == "\27[201~" then
-      payload = payload:sub(7, -7)
-    end
-    return raw_paste("\27[200~" .. payload:gsub("\27", "") .. "\27[201~", config)
+    M.provider = require("herdr-agents.terminal").provider({
+      connected = function() return require("pi-ide.server.init").get_status().client_count > 0 end,
+    })
   end
   vim.api.nvim_create_user_command("Pi", function(command) M.open(command.fargs) end, { nargs = "*" })
   vim.api.nvim_create_user_command("PiFocus", function()

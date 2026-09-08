@@ -25,11 +25,7 @@ local function shell_words(command)
       escaped = false
       started = true
     elseif quote == "'" then
-      if char == "'" then
-        quote = nil
-      else
-        word[#word + 1] = char
-      end
+      if char == "'" then quote = nil else word[#word + 1] = char end
       started = true
     elseif quote == '"' then
       if char == '"' then
@@ -54,21 +50,15 @@ local function shell_words(command)
     end
   end
 
-  if quote or escaped then
-    return nil, "unterminated quote or escape"
-  end
+  if quote or escaped then return nil, "unterminated quote or escape" end
   finish()
   return words
 end
 
 local function agent_args(command, process)
   local words, err = shell_words(command)
-  if not words then
-    return nil, err
-  end
-  if #words == 0 then
-    return nil, "empty agent command"
-  end
+  if not words then return nil, err end
+  if #words == 0 then return nil, "empty agent command" end
   local executable = vim.fn.fnamemodify(words[1], ":t")
   if executable ~= process then
     return nil, ("expected %s executable, got %s"):format(process, words[1])
@@ -77,18 +67,9 @@ local function agent_args(command, process)
   return words
 end
 
-local function agent_name(agent, pane)
-  -- Herdr agent names allow only lowercase letters, digits, '-' and '_'.
-  local suffix = pane:lower():gsub("[^%l%d_-]", "-")
-  return ("nvim-%s-%s"):format(agent, suffix)
-end
-
 function M.json(args)
-  local argv = vim.list_extend({ binary() }, vim.deepcopy(args))
-  local out = vim.fn.system(argv)
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
+  local out = vim.fn.system(vim.list_extend({ binary() }, vim.deepcopy(args)))
+  if vim.v.shell_error ~= 0 then return nil end
   local ok, decoded = pcall(vim.json.decode, out)
   return ok and decoded or nil
 end
@@ -100,45 +81,14 @@ function M.current()
   return result and result.result and result.result.pane or nil
 end
 
-local function right_adjacent(self_pane, candidates)
-  local result = self_pane and M.json({ "pane", "edges", "--pane", self_pane })
-  local panes = result
-    and result.result
-    and result.result.edges
-    and result.result.edges.layout
-    and result.result.edges.layout.panes
-  if not panes then
-    return nil
-  end
-  local rect, wanted = {}, {}
-  for _, pane in ipairs(panes) do
-    rect[pane.pane_id] = pane.rect
-  end
-  for _, id in ipairs(candidates) do
-    wanted[id] = true
-  end
-  local me = rect[self_pane]
-  if not me then
-    return nil
-  end
-  local best, best_x, best_overlap
-  for _, pane in ipairs(panes) do
-    local r = pane.rect
-    if wanted[pane.pane_id] and r.x >= me.x + me.width then
-      local overlap = math.min(me.y + me.height, r.y + r.height) - math.max(me.y, r.y)
-      if overlap > 0 and (not best or r.x < best_x or (r.x == best_x and overlap > best_overlap)) then
-        best, best_x, best_overlap = pane.pane_id, r.x, overlap
-      end
-    end
-  end
-  return best
+local function pane_info(id)
+  local result = id and M.json({ "pane", "get", id })
+  return result and result.result and result.result.pane or nil
 end
 
 local function connected_pane(opts)
-  local port = opts.port()
-  if not port then
-    return nil
-  end
+  local port = tonumber(opts.port())
+  if not port or port < 1 or port > 65535 or port % 1 ~= 0 then return nil end
   local script = string.format(
     "for pid in $(pgrep -f %s 2>/dev/null); do "
       .. "if [ -r /proc/$pid/environ ]; then e=$(tr '\\0' '\\n' </proc/$pid/environ); "
@@ -146,191 +96,172 @@ local function connected_pane(opts)
       .. "printf '%%s\\n' \"$e\" | grep -qx '%s=%s' && "
       .. "printf '%%s\\n' \"$e\" | sed -n 's/^HERDR_PANE_ID=//p'; "
       .. "done | head -1",
-    vim.fn.shellescape(opts.process),
-    opts.port_env,
-    tostring(port)
+    vim.fn.shellescape(opts.process), opts.port_env, tostring(port)
   )
   local out = vim.fn.system({ "sh", "-c", script })
-  if vim.v.shell_error ~= 0 then
-    return nil
-  end
+  if vim.v.shell_error ~= 0 then return nil end
   out = out:gsub("%s+$", "")
   return out ~= "" and out or nil
 end
 
-local function scoped_pane(agent)
-  local current = M.current()
-  if not current then
-    return nil
+-- All paste paths use one literal block, including review prompts and diagnostics.
+function M.bracketed_paste(payload)
+  if payload:sub(1, 6) == "\27[200~" and payload:sub(-6) == "\27[201~" then
+    payload = payload:sub(7, -7)
   end
-  local result = M.json({ "agent", "list" })
-  local agents = result and result.result and result.result.agents
-  if not agents then
-    return nil
-  end
-  local in_tab, in_workspace = {}, {}
-  for _, item in ipairs(agents) do
-    if item.agent == agent then
-      if item.tab_id == current.tab_id then
-        in_tab[#in_tab + 1] = item.pane_id
-      elseif item.workspace_id == current.workspace_id then
-        in_workspace[#in_workspace + 1] = item.pane_id
-      end
-    end
-  end
-  if #in_tab == 1 then
-    return in_tab[1]
-  elseif #in_tab > 1 then
-    return right_adjacent(current.pane_id, in_tab) or in_tab[1]
-  end
-  return #in_workspace == 1 and in_workspace[1] or nil
+  return "\27[200~" .. payload:gsub("\r\n", "\n"):gsub("\r", "\n"):gsub("\27", "") .. "\27[201~"
 end
 
 function M.provider(opts)
   local provider = {}
-  local spawned_pane
+  local owned
   local suppress_next_focus = false
 
-  local function pane_exists(id)
-    return id and M.json({ "pane", "get", id }) ~= nil
+  local function same_terminal(record, pane)
+    return pane and pane.terminal_id == record.terminal_id
   end
 
   function provider.pane()
-    local connected = connected_pane(opts)
-    if connected then
-      spawned_pane = connected
-      return connected
+    local connected = pane_info(connected_pane(opts))
+    if connected and connected.agent == opts.agent then
+      if not owned or owned.pane_id ~= connected.pane_id or not same_terminal(owned, connected) then
+        owned = connected
+      end
+      return owned.pane_id
     end
-    if pane_exists(spawned_pane) then
-      return spawned_pane
+    if owned then
+      local pane = pane_info(owned.pane_id)
+      if pane and same_terminal(owned, pane) and (owned.starting or pane.agent == opts.agent) then
+        return owned.pane_id
+      end
     end
-    spawned_pane = opts.reuse_scoped_pane ~= false and scoped_pane(opts.agent) or nil
-    return spawned_pane
+    return nil
+  end
+
+  function provider.status()
+    local id = provider.pane()
+    return {
+      pane_id = id,
+      state = not id and "stopped" or (owned.starting and "starting" or "ready"),
+      ide_connected = opts.connected and opts.connected() or false,
+    }
   end
 
   function provider.focus(id)
-    if id then
-      M.json({ "agent", "focus", id })
-    end
+    if id then M.json({ "agent", "focus", id }) end
   end
 
   local function dispatch(scope, command, payload, should_focus)
-    local id = provider.pane()
-    if not id then
-      return false
-    end
-    vim.fn.system({ binary(), scope, command, id, payload })
+    local status = provider.status()
+    if status.state ~= "ready" then return false end
+    vim.fn.system({ binary(), scope, command, status.pane_id, payload })
     local ok = vim.v.shell_error == 0
-    if ok and should_focus ~= false then
-      provider.focus(id)
-    end
+    if ok and should_focus ~= false then provider.focus(status.pane_id) end
     return ok
   end
 
   function provider.paste(payload, config)
-    config = config or {}
-    return dispatch("pane", "send-text", payload, config.focus)
+    return dispatch("pane", "send-text", M.bracketed_paste(payload), (config or {}).focus)
   end
 
   function provider.submit(payload, config)
-    config = config or {}
-    return dispatch("agent", "prompt", payload, config.focus)
+    return dispatch("agent", "prompt", payload, (config or {}).focus)
   end
 
-  -- Compatibility for callers of the original public API. New code should
-  -- choose paste() or submit() explicitly.
   provider.send = provider.paste
-
   function provider.setup() end
 
-  function provider.open(cmd, env, _, should_focus)
-    if suppress_next_focus then
-      should_focus = false
-      suppress_next_focus = false
+  local function close(record)
+    record.cancelled = true
+    if record.job then pcall(vim.fn.jobstop, record.job) end
+    local pane = pane_info(record.pane_id)
+    if same_terminal(record, pane) then
+      if not M.json({ "pane", "close", record.pane_id }) then return false end
     end
+    if owned == record then owned = nil end
+    return true
+  end
+
+  function provider.open(cmd, env, config, should_focus)
+    if suppress_next_focus then should_focus, suppress_next_focus = false, false end
     local existing = provider.pane()
     if existing then
-      if should_focus then
-        provider.focus(existing)
-      end
+      if should_focus then provider.focus(existing) end
       return true
     end
-    local current = M.current()
-    if not current then
+    local launch_args, parse_error = agent_args(cmd, opts.process)
+    if not launch_args then
+      vim.notify(("%s: cannot launch through Herdr: %s"):format(opts.agent, parse_error), vim.log.levels.ERROR)
       return false
     end
+    if opts.args then vim.list_extend(launch_args, opts.args()) end
+    local current = M.current()
+    if not current then return false end
     local args = {
-      "pane", "split", current.pane_id,
-      "--direction", "right", "--ratio", "0.7",
-      "--cwd", vim.fn.getcwd(), "--no-focus",
+      "pane", "split", current.pane_id, "--direction", "right", "--ratio", "0.7",
+      "--cwd", (config or {}).cwd or vim.fn.getcwd(), "--no-focus",
     }
     local keys = vim.tbl_keys(env or {})
     table.sort(keys)
     for _, key in ipairs(keys) do
-      args[#args + 1] = "--env"
-      args[#args + 1] = key .. "=" .. tostring(env[key])
+      vim.list_extend(args, { "--env", key .. "=" .. tostring(env[key]) })
     end
     local result = M.json(args)
-    spawned_pane = result and result.result and result.result.pane and result.result.pane.pane_id
-    if not spawned_pane then
+    local record = result and result.result and result.result.pane
+    if not (record and record.pane_id and record.terminal_id) then
       vim.notify(opts.agent .. ": Herdr could not create the agent pane", vim.log.levels.ERROR)
       return false
     end
-    local new_pane = spawned_pane
-    local launch_args, parse_error = agent_args(cmd, opts.process)
-    if not launch_args then
-      vim.notify(("%s: cannot launch through Herdr: %s"):format(opts.agent, parse_error), vim.log.levels.ERROR)
-      provider.close()
-      return false
-    end
-    local timeout = vim.env.HERDR_NVIM_AGENT_START_TIMEOUT or "30000"
+    owned, record.starting = record, true
+    local suffix = record.pane_id:lower():gsub("[^%l%d_-]", "-")
     local argv = {
-      binary(), "agent", "start", agent_name(opts.agent, new_pane),
-      "--kind", opts.agent, "--pane", new_pane, "--timeout", timeout,
+      binary(), "agent", "start", ("nvim-%s-%s"):format(opts.agent, suffix),
+      "--kind", opts.agent, "--pane", record.pane_id,
+      "--timeout", vim.env.HERDR_NVIM_AGENT_START_TIMEOUT or "30000",
     }
     if #launch_args > 0 then
       argv[#argv + 1] = "--"
       vim.list_extend(argv, launch_args)
     end
-    -- Herdr rejects agent starts with agent_pane_busy until the freshly
-    -- split pane reaches its interactive shell prompt, so retry while that
-    -- is the only failure.
     local attempts = 0
     local function start()
+      if owned ~= record or record.cancelled then return false end
+      if not same_terminal(record, pane_info(record.pane_id)) then
+        owned = nil
+        return false
+      end
       attempts = attempts + 1
       local output = {}
       local function collect(_, data)
-        if data then
-          output[#output + 1] = table.concat(data, "")
-        end
+        if data then output[#output + 1] = table.concat(data, "") end
       end
-      local job = vim.fn.jobstart(argv, {
+      record.job = vim.fn.jobstart(argv, {
         detach = true,
         on_stdout = collect,
         on_stderr = collect,
         on_exit = function(_, code)
           vim.schedule(function()
+            if owned ~= record or record.cancelled then return end
+            record.job = nil
             if code == 0 then
-              if should_focus then
-                provider.focus(new_pane)
-              end
+              record.starting = false
+              if should_focus and provider.pane() == record.pane_id then provider.focus(record.pane_id) end
             elseif attempts < 15 and table.concat(output):find("agent_pane_busy", 1, true) then
               vim.defer_fn(start, 300)
             else
               local detail = table.concat(output):gsub("%s+$", "")
               vim.notify(
                 ("%s: herdr agent start exited with status %d%s")
-                  :format(opts.agent, code, detail ~= "" and (": " .. detail) or ""),
-                vim.log.levels.ERROR
+                  :format(opts.agent, code, detail ~= "" and (": " .. detail) or ""), vim.log.levels.ERROR
               )
-              provider.close()
+              close(record)
             end
           end)
         end,
       })
-      if job <= 0 then
+      if record.job <= 0 then
         vim.notify(opts.agent .. ": Herdr could not start the agent", vim.log.levels.ERROR)
-        provider.close()
+        close(record)
         return false
       end
       return true
@@ -339,26 +270,12 @@ function M.provider(opts)
   end
 
   function provider.close()
-    local id = provider.pane()
-    if id then
-      M.json({ "pane", "close", id })
-    end
-    spawned_pane = nil
+    provider.pane() -- Recover this editor's connection, never a geometrically adjacent agent.
+    return not owned or close(owned)
   end
 
-  function provider.suppress_focus_once()
-    suppress_next_focus = true
-  end
-
-  function provider.simple_toggle(cmd, env, config)
-    local id = provider.pane()
-    if id then
-      provider.focus(id)
-      return true
-    end
-    return provider.open(cmd, env, config, true)
-  end
-
+  function provider.suppress_focus_once() suppress_next_focus = true end
+  function provider.simple_toggle(cmd, env, config) return provider.open(cmd, env, config, true) end
   provider.focus_toggle = provider.simple_toggle
   provider.maximize_toggle = provider.simple_toggle
   function provider.get_active_bufnr() return nil end
@@ -367,11 +284,9 @@ function M.provider(opts)
     local id = provider.pane()
     return id and { pane_id = id } or nil
   end
-
   return provider
 end
 
 M.shell_words = shell_words
 M.agent_args = agent_args
-
 return M
