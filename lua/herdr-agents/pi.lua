@@ -63,11 +63,17 @@ function M.setup(opts)
       process = "pi",
       port_env = "HERDR_PI_IDE_PORT",
       port = function() return require("pi-ide").state.port end,
-      connected = function() return require("pi-ide.server.init").get_status().client_count > 0 end,
+      connected = function()
+        local status = require("herdr-agents.ide").status("pi")
+        return status and status.connected or false
+      end,
     })
   else
     M.provider = require("herdr-agents.terminal").provider({
-      connected = function() return require("pi-ide.server.init").get_status().client_count > 0 end,
+      connected = function()
+        local status = require("herdr-agents.ide").status("pi")
+        return status and status.connected or false
+      end,
     })
   end
   vim.api.nvim_create_user_command("Pi", function(command) M.open(command.fargs) end, { nargs = "*" })

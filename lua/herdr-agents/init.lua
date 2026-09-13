@@ -1,5 +1,6 @@
 local M = {}
 local adapters = {}
+local known_agents = { claude = true, codex = true, pi = true }
 
 local function dependency(module, repository)
   local ok = pcall(require, module)
@@ -42,6 +43,7 @@ function M.setup(opts)
       submit = M.submit,
     })
   end
+  require("herdr-agents.status").setup()
   local agent = vim.env.HERDR_NVIM_AGENT
   local launch_args
   if agent and agent ~= "" then
@@ -84,8 +86,24 @@ function M.pane(agent)
 end
 
 function M.status(agent)
-  local provider = adapter(agent).provider
-  return provider.status()
+  if not known_agents[agent] then
+    error(("agent %q is unknown"):format(tostring(agent)))
+  end
+
+  local value = adapters[agent]
+  local provider = value and value.provider
+  local result = provider and provider.status() or {
+    pane_id = nil,
+    state = "stopped",
+    ide_connected = false,
+  }
+  local ide = require("herdr-agents.ide").status(agent)
+  if ide then
+    result.ide_connected = ide.connected
+    ide.connected = nil
+    result.ide_server = ide
+  end
+  return result
 end
 
 function M.reconnect(agent, args)

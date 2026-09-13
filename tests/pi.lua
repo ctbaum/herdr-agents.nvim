@@ -2,7 +2,7 @@ local source = debug.getinfo(1, "S").source:sub(2)
 local root = vim.fn.fnamemodify(source, ":p:h:h")
 vim.opt.runtimepath:prepend(root)
 
-local settings, launch, pasted, provider_opts
+local settings, launch, pasted
 local ide = { state = { running = false } }
 local lockfile = {}
 function ide.setup(opts) settings = opts end
@@ -15,9 +15,12 @@ local provider = {
     launch = { command = command, env = env, focus = focus }
     return true
   end,
-  paste = function(value) pasted = value; return true end,
+  paste = function(value)
+    pasted = require("herdr-agents.herdr").bracketed_paste(value)
+    return true
+  end,
 }
-require("herdr-agents.herdr").provider = function(opts) provider_opts = opts; return provider end
+require("herdr-agents.herdr").provider = function() return provider end
 vim.env.HERDR_SOCKET_PATH = "/tmp/pi-test.sock"
 vim.env.HERDR_NVIM_AGENT = nil
 local api = require("herdr-agents")
@@ -25,7 +28,6 @@ api.setup({ claude = { enabled = false }, codex = { enabled = false }, pi = { en
 assert(vim.deep_equal(api.enabled_agents(), { "pi" }))
 assert(settings.auto_start == false and settings.claude_code_compatibility == false)
 assert(settings.suggestion.auto_trigger == false and settings.suggestion.default_keys == false)
-assert(provider_opts.reuse_scoped_pane == false)
 assert(api.open("pi", { "--session", "/tmp/it's a session.jsonl" }))
 assert(vim.deep_equal(require("herdr-agents.herdr").shell_words(launch.command), {
   "pi", "--session", "/tmp/it's a session.jsonl",

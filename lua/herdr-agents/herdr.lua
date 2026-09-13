@@ -115,6 +115,7 @@ end
 function M.provider(opts)
   local provider = {}
   local owned
+  local last_pane
   local suppress_next_focus = false
 
   local function same_terminal(record, pane)
@@ -127,24 +128,37 @@ function M.provider(opts)
       if not owned or owned.pane_id ~= connected.pane_id or not same_terminal(owned, connected) then
         owned = connected
       end
+      last_pane = connected
       return owned.pane_id
     end
     if owned then
       local pane = pane_info(owned.pane_id)
       if pane and same_terminal(owned, pane) and (owned.starting or pane.agent == opts.agent) then
+        last_pane = pane
         return owned.pane_id
       end
     end
+    last_pane = nil
     return nil
   end
 
   function provider.status()
     local id = provider.pane()
-    return {
+    local result = {
       pane_id = id,
       state = not id and "stopped" or (owned.starting and "starting" or "ready"),
       ide_connected = opts.connected and opts.connected() or false,
     }
+    local pane = id and last_pane
+    if pane then
+      result.herdr_activity = pane.agent_status
+      result.working_directory = pane.foreground_cwd or pane.cwd
+      local session = pane.agent_session
+      if type(session) == "table" then
+        result.session_id = session.value or session.session_id or session.id
+      end
+    end
+    return result
   end
 
   function provider.focus(id)

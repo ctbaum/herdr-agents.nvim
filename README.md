@@ -161,6 +161,7 @@ agents.open("claude", { "--resume", session_id })
 agents.open("codex", { "resume", session_id })
 agents.focus("codex")
 local pane_id = agents.pane("claude")
+local status = agents.status("codex")
 agents.reconnect("claude", { "--resume", session_id })
 agents.paste("claude", "Please review the current diagnostics")
 agents.submit("codex", "Run the tests and fix any failures")
@@ -174,6 +175,42 @@ arguments without stealing editor focus. It is intended for a surviving
 Neovim process that needs to reconnect an agent after a Herdr server restart.
 `paste()` inserts text without submitting it; `submit()` sends an atomic prompt
 through Herdr. `send()` remains as a compatibility alias for `paste()`.
+
+## Agent status
+
+`:HerdrAgentStatus {agent}` shows an on-demand snapshot for `claude`, `codex`,
+or `pi` in a centered, read-only float. Press `q` or Escape to close it. The
+command installs no mapping and works when Neovim is outside Herdr. In that
+case, a separately configured codex.nvim server is still inspected, so a
+running IDE server and an authenticated Codex connection remain distinct.
+
+`agents.status(agent)` retains its existing `pane_id`, `state`, and
+`ide_connected` fields. When available, it also returns:
+
+```lua
+{
+  herdr_activity = "working",       -- Herdr's agent activity
+  working_directory = "/workspace", -- complete, untruncated value
+  session_id = "session-id",
+  ide_server = {
+    running = true,
+    port = 12345,
+    client_count = 1,                -- authenticated clients
+    in_flight_requests = 0,
+    deferred_review_requests = 0,
+  },
+}
+```
+
+Unavailable fields are omitted. The float truncates long display values to fit
+the editor, while the Lua API always returns their complete values. `state`
+describes the managed pane lifecycle (`stopped`, `starting`, or `ready`), while
+`herdr_activity` reports Herdr's independent `working` or `idle` activity.
+
+The current Neovim bridge does not identify the active model or expose richer
+Codex thread state. Those belong to the separate
+[Codex app-server protocol](https://learn.chatgpt.com/docs/app-server), which
+is intentionally outside this plugin's IDE-server integration.
 
 ## Optional review queue
 

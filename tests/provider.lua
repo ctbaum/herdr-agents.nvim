@@ -32,7 +32,11 @@ herdr.json = function(argv)
   elseif argv[2] == "split" then
     serial = serial + 1
     local id = "w4W:p" .. serial
-    panes[id] = { pane_id = id, terminal_id = "term_" .. serial }
+    local cwd
+    for index, value in ipairs(argv) do
+      if value == "--cwd" then cwd = argv[index + 1] end
+    end
+    panes[id] = { pane_id = id, terminal_id = "term_" .. serial, cwd = cwd }
     return { result = { pane = vim.deepcopy(panes[id]) } }
   elseif argv[2] == "close" then
     if close_fail then return nil end
@@ -44,6 +48,8 @@ for _, agent in ipairs({ "claude", "codex", "pi" }) do
   panes.other = { agent = agent, pane_id = "other", terminal_id = "unrelated", tab_id = "tab", workspace_id = "workspace" }
   local provider = herdr.provider({ agent = agent, process = agent, port_env = "TEST_PORT", port = function() return 4567 end })
   assert(provider.pane() == nil, "must not adopt an unrelated same-tab agent")
+  local stopped = provider.status()
+  assert(stopped.state == "stopped" and stopped.herdr_activity == nil and stopped.session_id == nil)
   assert(provider.close())
   assert(panes.other, "must not close an unrelated agent")
 end
@@ -52,7 +58,10 @@ local opts = { agent = "claude", process = "claude", port_env = "TEST_PORT", por
 local provider = herdr.provider(opts)
 assert(provider.open("claude --resume session-1", {}, { cwd = "/explicit/cwd" }, false))
 local first = provider.pane()
-assert(provider.status().state == "starting" and provider.status().ide_connected)
+local starting = provider.status()
+assert(starting.state == "starting" and starting.ide_connected)
+assert(starting.working_directory == "/explicit/cwd")
+assert(starting.herdr_activity == nil and starting.session_id == nil)
 assert(not provider.paste("too early"))
 assert(provider.open("claude", {}, nil, false) and #jobs == 0)
 assert(vim.iter(calls):any(function(call)
@@ -63,8 +72,17 @@ deferred[1]()
 assert(jobs[1].argv[4]:match("^nvim%-claude%-[%l%d_-]+$"))
 assert(jobs[1].argv[#jobs[1].argv] == "session-1")
 panes[first].agent = "claude"
+panes[first].agent_status = "working"
+panes[first].foreground_cwd = "/foreground/cwd"
+panes[first].agent_session = { agent = "claude", kind = "id", value = "session-1" }
 jobs[1].opts.on_exit(1, 0)
 vim.wait(100, function() return provider.status().state == "ready" end)
+local working = provider.status()
+assert(working.herdr_activity == "working")
+assert(working.working_directory == "/foreground/cwd")
+assert(working.session_id == "session-1")
+panes[first].agent_status = "idle"
+assert(provider.status().herdr_activity == "idle")
 assert(provider.paste("first\nsecond", { focus = false }))
 assert(calls[#calls][5] == "\27[200~first\nsecond\27[201~")
 assert(provider.submit("submit", { focus = false }))
