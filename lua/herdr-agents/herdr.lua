@@ -245,6 +245,8 @@ function M.provider(opts)
             record.job = nil
             if code == 0 then
               record.starting = false
+              -- Codex leaves the injected shell command above its inline TUI.
+              if opts.agent == "codex" then M.json({ "agent", "send-keys", record.pane_id, "ctrl+l" }) end
               if should_focus and provider.pane() == record.pane_id then provider.focus(record.pane_id) end
             elseif attempts < 15 and table.concat(output):find("agent_pane_busy", 1, true) then
               vim.defer_fn(start, 300)
@@ -266,7 +268,8 @@ function M.provider(opts)
       end
       return true
     end
-    return start()
+    vim.defer_fn(start, 500)
+    return true
   end
 
   function provider.close()
