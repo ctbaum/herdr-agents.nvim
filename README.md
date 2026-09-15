@@ -173,6 +173,9 @@ shell command. `pane()` returns the currently associated Herdr pane ID.
 `reconnect()` closes that pane and creates a replacement using the supplied
 arguments without stealing editor focus. It is intended for a surviving
 Neovim process that needs to reconnect an agent after a Herdr server restart.
+Automatic recovery uses the same replacement mechanics but obtains resume
+arguments from Herdr's native session metadata. The public `reconnect()` API is
+unchanged.
 `paste()` inserts text without submitting it; `submit()` sends an atomic prompt
 through Herdr. `send()` remains as a compatibility alias for `paste()`.
 
@@ -237,8 +240,10 @@ Any launcher can request an agent when Neovim starts by setting:
 
 | variable | purpose |
 |---|---|
-| `HERDR_NVIM_AGENT` | `claude` or `codex` |
+| `HERDR_NVIM_AGENT` | `claude`, `codex`, or `pi` |
 | `HERDR_NVIM_AGENT_ARGS_JSON` | JSON array of individual CLI arguments; defaults to `[]` |
+| `HERDR_NVIM_AGENT_RECOVER` | set to `1` to recover this editor's existing agent before starting a new one |
+| `HERDR_NVIM_AGENT_RECOVER_WAIT_MS` | optional delay before recovery, giving a restoring Herdr server time to resume agents |
 | `HERDR_BIN_PATH` | optional alternative Herdr executable |
 | `HERDR_NVIM_AGENT_START_TIMEOUT` | optional `herdr agent start` timeout in milliseconds; defaults to `30000` |
 
@@ -253,10 +258,24 @@ nvim
 The provider uses `herdr agent start` to wait for the new pane's interactive
 shell, launch the supported agent, and verify that Herdr detects it. The pane
 inherits the upstream IDE/MCP environment created by Neovim. After launch, the
-provider first matches the IDE/MCP port in the agent process
-environment to recover its exact `HERDR_PANE_ID`. Same-tab geometry is only a
-startup fallback, which keeps multiple editors in one workspace from
-controlling one another.
+provider first matches the IDE/MCP port in the agent process environment to
+recover its exact `HERDR_PANE_ID`.
+
+Recovery names every new agent from its editor pane ID. On a later automatic
+startup, an agent already connected to the new IDE endpoint is reused. If the
+stable name identifies a disconnected agent in the same tab and workspace,
+the provider verifies its pane and terminal identity, reads `agent_session`,
+closes it, and starts exactly one replacement. Claude uses `--resume ID`,
+Codex uses `resume ID`, and Pi uses `--session PATH_OR_ID`; other launch flags
+are preserved and stale resume arguments are replaced.
+
+For decks created before stable names, recovery accepts a legacy
+`nvim-{agent}-*` name only when exactly one candidate of the expected type
+exists in the editor's tab and workspace. It never chooses between ambiguous
+candidates. If the pane changes, closure fails, or no usable native session
+reference exists, the existing pane is left alone and no duplicate is created.
+Native references come from supported Herdr integrations; see [Herdr session
+restore](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.0/docs/next/website/src/content/docs/session-state.mdx).
 
 ## Optional integrations
 

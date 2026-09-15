@@ -64,7 +64,21 @@ function M.setup(opts)
   end
   vim.g.herdr_agents_ready = true
   if launch_args then
-    vim.schedule(function() M.open(agent, launch_args) end)
+    local recovering = vim.env.HERDR_NVIM_AGENT_RECOVER == "1"
+    local function launch()
+      local value = adapters[agent]
+      if recovering and value.provider then
+        value.provider.recover_once()
+      end
+      M.open(agent, launch_args)
+      if value.provider then value.provider.cancel_recovery() end
+    end
+    local wait = recovering and math.max(0, tonumber(vim.env.HERDR_NVIM_AGENT_RECOVER_WAIT_MS or "") or 0) or 0
+    if wait > 0 then
+      vim.defer_fn(launch, wait)
+    else
+      vim.schedule(launch)
+    end
   end
 end
 

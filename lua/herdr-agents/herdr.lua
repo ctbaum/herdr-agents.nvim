@@ -86,6 +86,59 @@ local function pane_info(id)
   return result and result.result and result.result.pane or nil
 end
 
+local function pane_suffix(id)
+  return id:lower():gsub("[^%l%d_-]", "-")
+end
+
+function M.agent_name(agent, editor_pane_id)
+  return ("nvim-%s-%s"):format(agent, pane_suffix(editor_pane_id))
+end
+
+local function without_session_args(agent, args)
+  local result = {}
+  local index = 1
+  while index <= #args do
+    local arg = args[index]
+    local consumes_value = (agent == "claude" and arg == "--resume")
+      or (agent == "codex" and arg == "resume")
+      or (agent == "pi" and arg == "--session")
+    local inline = (agent == "claude" and arg:match("^%-%-resume="))
+      or (agent == "pi" and arg:match("^%-%-session="))
+    if consumes_value then
+      index = index + 2
+    elseif inline then
+      index = index + 1
+    else
+      result[#result + 1] = arg
+      index = index + 1
+    end
+  end
+  return result
+end
+
+function M.resume_args(agent, args, session)
+  local preserved = without_session_args(agent, args)
+  local result
+  if agent == "claude" then
+    result = { "--resume", session }
+  elseif agent == "codex" then
+    result = { "resume", session }
+  elseif agent == "pi" then
+    result = { "--session", session }
+  else
+    return vim.deepcopy(args)
+  end
+  vim.list_extend(result, preserved)
+  return result
+end
+
+local function session_reference(pane, agent)
+  local session = pane and pane.agent_session
+  if type(session) ~= "table" or (session.agent and session.agent ~= agent) then return nil end
+  local value = session.value or session.session_id or session.id
+  return type(value) == "string" and value ~= "" and value or nil
+end
+
 local function connected_pane(opts)
   local port = tonumber(opts.port())
   if not port or port < 1 or port > 65535 or port % 1 ~= 0 then return nil end
@@ -117,9 +170,13 @@ function M.provider(opts)
   local owned
   local last_pane
   local suppress_next_focus = false
+  local recover_next_open = false
 
   local function same_terminal(record, pane)
-    return pane and pane.terminal_id == record.terminal_id
+    return pane
+      and type(record.terminal_id) == "string"
+      and record.terminal_id ~= ""
+      and pane.terminal_id == record.terminal_id
   end
 
   function provider.pane()
@@ -185,18 +242,84 @@ function M.provider(opts)
   provider.send = provider.paste
   function provider.setup() end
 
-  local function close(record)
+  local function close(record, require_match)
     record.cancelled = true
     if record.job then pcall(vim.fn.jobstop, record.job) end
     local pane = pane_info(record.pane_id)
     if same_terminal(record, pane) then
       if not M.json({ "pane", "close", record.pane_id }) then return false end
+    elseif require_match then
+      return false
     end
     if owned == record then owned = nil end
     return true
   end
 
+  local function recovery_candidate(current)
+    local result = M.json({ "agent", "list" })
+    local agents = result and result.result and result.result.agents
+    if type(agents) ~= "table" then return nil, "Herdr could not list agent panes" end
+    local exact, legacy = {}, {}
+    local expected_name = M.agent_name(opts.agent, current.pane_id)
+    local legacy_prefix = "nvim-" .. opts.agent .. "-"
+    for _, pane in ipairs(agents) do
+      if pane.agent == opts.agent
+        and pane.workspace_id == current.workspace_id
+        and pane.tab_id == current.tab_id
+      then
+        if pane.name == expected_name then
+          exact[#exact + 1] = pane
+        elseif type(pane.name) == "string" and pane.name:sub(1, #legacy_prefix) == legacy_prefix then
+          legacy[#legacy + 1] = pane
+        end
+      end
+    end
+    if #exact == 1 then return exact[1] end
+    if #exact > 1 then return nil, "more than one exact agent pane exists" end
+    if #legacy == 1 then return legacy[1] end
+    if #legacy > 1 then return nil, "more than one legacy agent pane exists" end
+    return nil
+  end
+
+  local function recover(current, launch_args)
+    local candidate, err = recovery_candidate(current)
+    if err then
+      vim.notify(("%s: cannot recover this editor: %s"):format(opts.agent, err), vim.log.levels.WARN)
+      return nil, false
+    end
+    if not candidate then return launch_args, true end
+    if type(candidate.pane_id) ~= "string" or candidate.pane_id == "" then
+      vim.notify(opts.agent .. ": the recovery agent has no usable pane identity", vim.log.levels.WARN)
+      return nil, false
+    end
+
+    local pane = pane_info(candidate.pane_id)
+    if not same_terminal(candidate, pane) or pane.agent ~= opts.agent then
+      vim.notify(opts.agent .. ": the recovery pane changed before it could be verified", vim.log.levels.WARN)
+      return nil, false
+    end
+    local session = session_reference(pane, opts.agent)
+    if not session then
+      vim.notify(
+        opts.agent .. ": the existing agent has no usable native session reference; leaving it untouched",
+        vim.log.levels.WARN
+      )
+      return nil, false
+    end
+    if not close(candidate, true) then
+      vim.notify(opts.agent .. ": Herdr could not close the disconnected agent pane", vim.log.levels.ERROR)
+      return nil, false
+    end
+    if same_terminal(candidate, pane_info(candidate.pane_id)) then
+      vim.notify(opts.agent .. ": the disconnected agent pane remained open", vim.log.levels.ERROR)
+      return nil, false
+    end
+    return M.resume_args(opts.agent, launch_args, session), true
+  end
+
   function provider.open(cmd, env, config, should_focus)
+    local recovering = recover_next_open
+    recover_next_open = false
     if suppress_next_focus then should_focus, suppress_next_focus = false, false end
     local existing = provider.pane()
     if existing then
@@ -211,6 +334,11 @@ function M.provider(opts)
     if opts.args then vim.list_extend(launch_args, opts.args()) end
     local current = M.current()
     if not current then return false end
+    if recovering then
+      local recovered_args, ok = recover(current, launch_args)
+      if not ok then return false end
+      launch_args = recovered_args
+    end
     local args = {
       "pane", "split", current.pane_id, "--direction", "right", "--ratio", "0.7",
       "--cwd", (config or {}).cwd or vim.fn.getcwd(), "--no-focus",
@@ -227,9 +355,8 @@ function M.provider(opts)
       return false
     end
     owned, record.starting = record, true
-    local suffix = record.pane_id:lower():gsub("[^%l%d_-]", "-")
     local argv = {
-      binary(), "agent", "start", ("nvim-%s-%s"):format(opts.agent, suffix),
+      binary(), "agent", "start", M.agent_name(opts.agent, current.pane_id),
       "--kind", opts.agent, "--pane", record.pane_id,
       "--timeout", vim.env.HERDR_NVIM_AGENT_START_TIMEOUT or "30000",
     }
@@ -291,6 +418,8 @@ function M.provider(opts)
     return not owned or close(owned)
   end
 
+  function provider.recover_once() recover_next_open = true end
+  function provider.cancel_recovery() recover_next_open = false end
   function provider.suppress_focus_once() suppress_next_focus = true end
   function provider.simple_toggle(cmd, env, config) return provider.open(cmd, env, config, true) end
   provider.focus_toggle = provider.simple_toggle

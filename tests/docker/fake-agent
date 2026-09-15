@@ -3,11 +3,52 @@ set -eu
 
 agent=$(basename "$0")
 sse=${CLAUDE_CODE_SSE_PORT:-${CODEX_CODE_SSE_PORT:-}}
+session="session-real-$agent"
+session_flag=
+for arg in "$@"; do
+  if [ -n "$session_flag" ]; then
+    session=$arg
+    session_flag=
+  elif [ "$arg" = --resume ] || [ "$arg" = resume ] || [ "$arg" = --session ]; then
+    session_flag=1
+  fi
+done
 {
   printf 'pane=%s\n' "${HERDR_PANE_ID:-}"
   printf 'sse=%s\n' "$sse"
   printf 'ide=%s\n' "${ENABLE_IDE_INTEGRATION:-}"
 } >"/tmp/herdr-agent-env-$agent"
+
+HERDR_TEST_AGENT="$agent" HERDR_TEST_SESSION="$session" python3 - <<'PY'
+import json
+import os
+import socket
+import time
+
+agent = os.environ["HERDR_TEST_AGENT"]
+pane = os.environ.get("HERDR_PANE_ID")
+path = os.environ.get("HERDR_SOCKET_PATH")
+if pane and path:
+    request = {
+        "id": f"test:{agent}:{time.time_ns()}",
+        "method": "pane.report_agent_session",
+        "params": {
+            "agent": agent,
+            "agent_session_id": os.environ["HERDR_TEST_SESSION"],
+            "pane_id": pane,
+            "seq": time.time_ns(),
+            "source": f"herdr:{agent}",
+        },
+    }
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(0.5)
+        client.connect(path)
+        client.sendall((json.dumps(request) + "\n").encode())
+        client.close()
+    except OSError:
+        pass
+PY
 
 printf '%s' "$agent"
 for arg in "$@"; do

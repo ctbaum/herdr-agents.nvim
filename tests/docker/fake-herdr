@@ -11,31 +11,65 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"result":{"edges":{"layout":{"panes":[{"pane_id":"nvim-pane","rect":{"x":0,"y":0,"width":70,"height":40}},{"pane_id":"agent-pane","rect":{"x":70,"y":0,"width":30,"height":40}}]}}}}'
     ;;
   "pane split")
-    printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+    touch /tmp/herdr-agent-pane
+    printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","terminal_id":"agent-terminal","tab_id":"tab-1","workspace_id":"ws-1"}}}'
     ;;
   "pane get")
-    if [ -f /tmp/herdr-agent-spawned ]; then
-      printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+    if [ -f /tmp/herdr-agent-pane ]; then
+      if [ -f /tmp/herdr-agent-spawned ]; then
+        agent=$(cat /tmp/herdr-agent-kind)
+        name=$(cat /tmp/herdr-agent-instance)
+        session=$(cat /tmp/herdr-agent-session)
+        jq -cn --arg agent "$agent" --arg name "$name" --arg session "$session" \
+          '{result:{pane:{agent:$agent,agent_session:{agent:$agent,kind:"id",value:$session},name:$name,pane_id:"agent-pane",terminal_id:"agent-terminal",tab_id:"tab-1",workspace_id:"ws-1"}}}'
+      else
+        printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","terminal_id":"agent-terminal","tab_id":"tab-1","workspace_id":"ws-1"}}}'
+      fi
     else
       exit 1
     fi
     ;;
   "agent start")
-    touch /tmp/herdr-agent-spawned
+    name=$3
+    shift 3
+    agent=
+    session=
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --kind)
+          agent=$2
+          shift 2
+          ;;
+        --resume|--session|resume)
+          session=$2
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    : "${session:=${HERDR_FAKE_SESSION:-session-original}}"
+    printf '%s\n' "$agent" >/tmp/herdr-agent-kind
+    printf '%s\n' "$name" >/tmp/herdr-agent-instance
+    printf '%s\n' "$session" >/tmp/herdr-agent-session
+    touch /tmp/herdr-agent-pane /tmp/herdr-agent-spawned
     printf '%s\n' '{"result":{}}'
     ;;
   "agent list")
     if [ -f /tmp/herdr-agent-spawned ]; then
-      agent=$(cat /tmp/herdr-agent-name)
-      printf '{"result":{"agents":[{"agent":"%s","pane_id":"agent-pane","tab_id":"tab-1","workspace_id":"ws-1"}]}}\n' "$agent"
+      agent=$(cat /tmp/herdr-agent-kind)
+      name=$(cat /tmp/herdr-agent-instance)
+      session=$(cat /tmp/herdr-agent-session)
+      jq -cn --arg agent "$agent" --arg name "$name" --arg session "$session" \
+        '{result:{agents:[{agent:$agent,agent_session:{agent:$agent,kind:"id",value:$session},name:$name,pane_id:"agent-pane",terminal_id:"agent-terminal",tab_id:"tab-1",workspace_id:"ws-1"}]}}'
     else
       printf '%s\n' '{"result":{"agents":[]}}'
     fi
     ;;
   "pane close")
-    if [ "${HERDR_FAKE_CLOSE_FAIL:-}" != 1 ]; then
-      rm -f /tmp/herdr-agent-spawned
-    fi
+    if [ "${HERDR_FAKE_CLOSE_FAIL:-}" = 1 ]; then exit 1; fi
+    rm -f /tmp/herdr-agent-pane /tmp/herdr-agent-spawned
     printf '%s\n' '{"result":{}}'
     ;;
   "agent focus"|"agent prompt"|"pane send-text")

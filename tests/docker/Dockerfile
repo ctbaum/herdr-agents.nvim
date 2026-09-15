@@ -5,7 +5,7 @@ ARG NVIM_VERSION=v0.11.4
 ARG HERDR_VERSION=0.7.5
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git jq procps zsh \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq procps python3 zsh \
     && case "$TARGETARCH" in \
          amd64) nvim_arch=x86_64; herdr_arch=x86_64 ;; \
          arm64) nvim_arch=arm64; herdr_arch=aarch64 ;; \
