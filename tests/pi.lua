@@ -63,6 +63,25 @@ vim.cmd("PiDiffAccept")
 assert(accepted)
 vim.cmd("PiDiffDeny")
 assert(vim.api.nvim_get_current_buf() == original)
+local accepted_all = 0
+for i = 1, 2 do
+  vim.cmd("tabnew")
+  vim.bo.buftype = "acwrite"
+  vim.api.nvim_buf_set_name(0, ("/tmp/pi all %d.lua [pi-proposed]"):format(i))
+  vim.api.nvim_create_autocmd("BufWriteCmd", { buffer = 0, callback = function() accepted_all = accepted_all + 1 end })
+end
+vim.cmd("PiDiffAcceptAll")
+assert(accepted_all == 2)
+vim.cmd("tabnew")
+local future = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(future, "/tmp/pi future.lua [pi-proposed]")
+vim.bo[future].buftype = "acwrite"
+vim.api.nvim_set_current_buf(future)
+vim.api.nvim_create_autocmd("BufWriteCmd", {
+  buffer = future,
+  callback = function() accepted_all = accepted_all + 1 end,
+})
+assert(vim.wait(100, function() return accepted_all == 3 end))
 ide.stop()
 vim.fn.delete(lockfile.lock_dir, "d")
 print("herdr-agents Pi test passed")

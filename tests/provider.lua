@@ -53,6 +53,8 @@ herdr.json = function(argv)
     end
     panes[id] = { pane_id = id, terminal_id = "term_" .. serial, cwd = cwd }
     return { result = { pane = vim.deepcopy(panes[id]) } }
+  elseif argv[2] == "swap" then
+    return { result = {} }
   elseif argv[2] == "close" then
     if close_fail then return nil end
     if not close_keeps_pane then panes[argv[3]] = nil end
@@ -80,8 +82,9 @@ assert(starting.herdr_activity == nil and starting.session_id == nil)
 assert(not provider.paste("too early"))
 assert(provider.open("claude", {}, nil, false) and #jobs == 0)
 assert(vim.iter(calls):any(function(call)
-  return call[2] == "split" and call[9] == "/explicit/cwd"
+  return call[2] == "split" and call[7] == "0.7" and call[9] == "/explicit/cwd"
 end))
+assert(not vim.iter(calls):any(function(call) return call[2] == "swap" end))
 assert(#deferred == 1)
 deferred[1]()
 assert(jobs[1].argv[4] == "nvim-claude-editor")
@@ -173,6 +176,18 @@ local function count_call(scope, command)
   end
   return count
 end
+
+reset()
+local left = herdr.provider(opts)
+assert(left.open("claude", {}, { split_side = "left", split_width_percentage = 0.4 }, false))
+local left_pane = left.pane()
+assert(vim.iter(calls):any(function(call)
+  return call[2] == "split" and call[7] == "0.4"
+end))
+assert(vim.iter(calls):any(function(call)
+  return call[2] == "swap" and call[4] == "editor" and call[6] == left_pane
+end))
+assert(left.close())
 
 reset()
 panes.old = pane("old", "nvim-claude-editor", "native-session")

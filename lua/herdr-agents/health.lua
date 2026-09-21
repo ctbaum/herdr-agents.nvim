@@ -7,7 +7,7 @@ local function executable(name, required)
   elseif required then
     vim.health.error(name .. " is not executable")
   else
-    vim.health.warn(name .. " is not executable (needed only for its agent decks)")
+    vim.health.warn(name .. " is not executable (needed only to launch this agent)")
   end
 end
 

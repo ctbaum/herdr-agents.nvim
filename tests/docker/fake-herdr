@@ -7,9 +7,6 @@ case "${1:-} ${2:-}" in
   "pane current")
     printf '%s\n' '{"result":{"pane":{"pane_id":"nvim-pane","tab_id":"tab-1","workspace_id":"ws-1"}}}'
     ;;
-  "pane edges")
-    printf '%s\n' '{"result":{"edges":{"layout":{"panes":[{"pane_id":"nvim-pane","rect":{"x":0,"y":0,"width":70,"height":40}},{"pane_id":"agent-pane","rect":{"x":70,"y":0,"width":30,"height":40}}]}}}}'
-    ;;
   "pane split")
     touch /tmp/herdr-agent-pane
     printf '%s\n' '{"result":{"pane":{"pane_id":"agent-pane","terminal_id":"agent-terminal","tab_id":"tab-1","workspace_id":"ws-1"}}}'

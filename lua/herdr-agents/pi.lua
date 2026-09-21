@@ -1,5 +1,6 @@
 local M = {}
 local lock_dir
+local auto_accept = false
 
 local function paste(payload)
   if not M.provider.paste(payload) then
@@ -24,16 +25,31 @@ function M.add_file()
   return paste("Current file: " .. file)
 end
 
-function M.review(accept)
-  for _, window in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    local buffer = vim.api.nvim_win_get_buf(window)
-    if vim.bo[buffer].buftype == "acwrite" and vim.api.nvim_buf_get_name(buffer):match(" %[pi%-proposed%]$") then
+local function proposal(buffer)
+  return vim.api.nvim_buf_is_valid(buffer)
+    and vim.bo[buffer].buftype == "acwrite"
+    and vim.api.nvim_buf_get_name(buffer):match(" %[pi%-proposed%]$")
+end
+
+function M.review(accept, all, quiet)
+  local windows = all and vim.api.nvim_list_wins() or vim.api.nvim_tabpage_list_wins(0)
+  local found = false
+  for _, window in ipairs(windows) do
+    if proposal(vim.api.nvim_win_get_buf(window)) then
       vim.api.nvim_win_call(window, function() vim.cmd(accept and "write" or "close!") end)
-      return true
+      found = true
+      if not all then return true end
     end
   end
-  vim.notify("No Pi proposal in the current tab", vim.log.levels.WARN)
+  if found then return true end
+  if not quiet then vim.notify(all and "No open Pi proposals" or "No Pi proposal in the current tab", vim.log.levels.WARN) end
   return false
+end
+
+function M.accept_all()
+  auto_accept = true
+  M.review(true, true, true)
+  vim.notify("Future Pi proposals will be accepted automatically")
 end
 
 function M.open(args)
@@ -85,7 +101,18 @@ function M.setup(opts)
   end, { range = true })
   vim.api.nvim_create_user_command("PiAdd", M.add_file, {})
   vim.api.nvim_create_user_command("PiDiffAccept", function() M.review(true) end, {})
+  vim.api.nvim_create_user_command("PiDiffAcceptAll", M.accept_all, {})
   vim.api.nvim_create_user_command("PiDiffDeny", function() M.review(false) end, {})
+  vim.api.nvim_create_autocmd("BufEnter", {
+    callback = function(event)
+      if not auto_accept or not proposal(event.buf) then return end
+      vim.schedule(function()
+        if auto_accept and proposal(event.buf) then
+          vim.api.nvim_buf_call(event.buf, function() vim.cmd("silent write") end)
+        end
+      end)
+    end,
+  })
   require("herdr-agents.diagnostics").register("PiSendDiagnostics", M.provider, "Pi")
   vim.api.nvim_create_autocmd("VimLeavePre", {
     callback = function()

@@ -58,7 +58,7 @@ for _, enabled in ipairs({ { "pi" }, { "codex", "pi" }, { "codex" }, { "claude" 
     local active = vim.tbl_contains(enabled, agent)
     assert((checked[agent] == true) == active, agent .. " executable check")
     assert((loaded[agent] == true) == active, agent .. " dependency check")
-    assert(vim.tbl_contains(warnings, agent .. " is not executable (needed only for its agent decks)") == active)
+    assert(vim.tbl_contains(warnings, agent .. " is not executable (needed only to launch this agent)") == active)
   end
 end
 

@@ -76,7 +76,10 @@ upstream plugin setup; the Herdr terminal provider itself is always retained.
 require("herdr-agents").setup({
   claude = {
     enabled = true,
-    opts = { diff_opts = { layout = "vertical" } },
+    opts = {
+      diff_opts = { layout = "vertical" },
+      terminal = { split_side = "right", split_width_percentage = 0.3 },
+    },
   },
   codex = {
     enabled = true,
@@ -88,6 +91,9 @@ require("herdr-agents").setup({
   },
 })
 ```
+
+Claude and Codex pane placement follows their upstream `terminal.split_side`
+and `terminal.split_width_percentage` settings, including their defaults.
 
 ## Pi IDE integration
 
@@ -117,6 +123,7 @@ panes by their position. Existing sessions are left alone.
 | `:PiAdd` | Paste the current file's path |
 | `:PiSendDiagnostics` | Paste current-buffer LSP diagnostics |
 | `:PiDiffAccept` / `:PiDiffDeny` | Accept or reject the proposal in the current tab |
+| `:PiDiffAcceptAll` | Accept open proposals and automatically accept subsequent proposals |
 | `:PiStatus` | Show IDE connection status |
 | `:PiSuggest` / `:PiSuggestModel` | Request an inline suggestion or choose its model |
 
@@ -269,7 +276,7 @@ closes it, and starts exactly one replacement. Claude uses `--resume ID`,
 Codex uses `resume ID`, and Pi uses `--session PATH_OR_ID`; other launch flags
 are preserved and stale resume arguments are replaced.
 
-For decks created before stable names, recovery accepts a legacy
+For agents created before stable names, recovery accepts a legacy
 `nvim-{agent}-*` name only when exactly one candidate of the expected type
 exists in the editor's tab and workspace. It never chooses between ambiguous
 candidates. If the pane changes, closure fails, or no usable native session

@@ -339,9 +339,12 @@ function M.provider(opts)
       if not ok then return false end
       launch_args = recovered_args
     end
+    local terminal = config or {}
+    local width = tonumber(terminal.split_width_percentage) or 0.3
+    local left = terminal.split_side == "left"
     local args = {
-      "pane", "split", current.pane_id, "--direction", "right", "--ratio", "0.7",
-      "--cwd", (config or {}).cwd or vim.fn.getcwd(), "--no-focus",
+      "pane", "split", current.pane_id, "--direction", "right", "--ratio", tostring(left and width or 1 - width),
+      "--cwd", terminal.cwd or vim.fn.getcwd(), "--no-focus",
     }
     local keys = vim.tbl_keys(env or {})
     table.sort(keys)
@@ -352,6 +355,13 @@ function M.provider(opts)
     local record = result and result.result and result.result.pane
     if not (record and record.pane_id and record.terminal_id) then
       vim.notify(opts.agent .. ": Herdr could not create the agent pane", vim.log.levels.ERROR)
+      return false
+    end
+    if left and not M.json({
+      "pane", "swap", "--source-pane", current.pane_id, "--target-pane", record.pane_id,
+    }) then
+      M.json({ "pane", "close", record.pane_id })
+      vim.notify(opts.agent .. ": Herdr could not place the agent pane", vim.log.levels.ERROR)
       return false
     end
     owned, record.starting = record, true
