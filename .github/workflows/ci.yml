@@ -27,3 +27,15 @@ jobs:
           for test in diagnostics health provider review status terminal pi; do
             nvim --headless -u NONE -l "tests/$test.lua"
           done
+
+  docker-e2e:
+    name: Docker end-to-end
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build image
+        run: docker build -f tests/docker/Dockerfile -t herdr-agents-nvim-e2e .
+      - name: Run end-to-end tests
+        run: docker run --rm herdr-agents-nvim-e2e
