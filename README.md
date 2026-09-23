@@ -308,6 +308,37 @@ docker build -f tests/docker/Dockerfile -t herdr-agents-nvim-e2e .
 docker run --rm herdr-agents-nvim-e2e
 ```
 
+## Adding another agent
+
+Contributions are welcome but keep the following in mind:
+`herdr-agents.nvim` is a thin bridge. The upstream Neovim plugin owns its IDE/MCP
+server, context, commands, and review workflow; Herdr owns panes, processes,
+activity, and native session metadata. An agent harness belongs here only when both
+sides provide enough integration to preserve that ownership.
+
+A conforming adapter should:
+
+- reuse the upstream plugin rather than reimplementing selections, diagnostics,
+  mentions, or diffs;
+- implement the existing `open`, `pane`, `focus`, `status`, `reconnect`,
+  `paste`, and `submit` behavior through the shared providers;
+- identify the connected pane from a unique IDE endpoint in the agent process
+  environment and verify terminal identity—never infer ownership from layout;
+- leave panes and sessions untouched when identity or recovery is ambiguous,
+  and implement the agent's native resume syntax before enabling recovery;
+- preserve upstream options while forcing only transport and security
+  invariants, with new dependencies disabled by default;
+- pass launch arguments as individual values, use the shared literal paste
+  path, isolate per-editor credentials, and report pane, activity, server, and
+  connection state separately;
+- add the agent explicitly to setup, IDE status, health, and status completion,
+  then document its requirements and add one focused adapter test plus coverage
+  for any new lifecycle behavior.
+
+Do not add global mappings, a workspace picker, an opinionated layout, or a
+generic abstraction for one adapter. If an agent harness has no upstream editor
+integration or no connection-true identity marker, it is not yet a safe fit.
+
 ## License
 
 MIT
