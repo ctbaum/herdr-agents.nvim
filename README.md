@@ -117,15 +117,15 @@ same project cannot accidentally connect to each other. Herdr pane identity
 uses `HERDR_PI_IDE_PORT`; the Pi provider does not adopt unrelated existing
 panes by their position. Existing sessions are left alone.
 
-| Command | Action |
-| --- | --- |
-| `:[range]PiSendSelection` | Paste selected buffer lines, including unsaved text |
-| `:PiAdd` | Paste the current file's path |
-| `:PiSendDiagnostics` | Paste current-buffer LSP diagnostics |
-| `:PiDiffAccept` / `:PiDiffDeny` | Accept or reject the proposal in the current tab |
-| `:PiDiffAcceptAll` | Accept open proposals and automatically accept subsequent proposals |
-| `:PiStatus` | Show IDE connection status |
-| `:PiSuggest` / `:PiSuggestModel` | Request an inline suggestion or choose its model |
+| Command                          | Action                                                              |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `:[range]PiSendSelection`        | Paste selected buffer lines, including unsaved text                 |
+| `:PiAdd`                         | Paste the current file's path                                       |
+| `:PiSendDiagnostics`             | Paste current-buffer LSP diagnostics                                |
+| `:PiDiffAccept` / `:PiDiffDeny`  | Accept or reject the proposal in the current tab                    |
+| `:PiDiffAcceptAll`               | Accept open proposals and automatically accept subsequent proposals |
+| `:PiStatus`                      | Show IDE connection status                                          |
+| `:PiSuggest` / `:PiSuggestModel` | Request an inline suggestion or choose its model                    |
 
 Context commands paste without submitting, giving you a chance to edit the
 prompt. The extension also receives live cursor/selection context, provides
@@ -199,13 +199,13 @@ running IDE server and an authenticated Codex connection remain distinct.
 
 ```lua
 {
-  herdr_activity = "working",       -- Herdr's agent activity
+  herdr_activity = "working",
   working_directory = "/workspace", -- complete, untruncated value
   session_id = "session-id",
   ide_server = {
     running = true,
     port = 12345,
-    client_count = 1,                -- authenticated clients
+    client_count = 1,
     in_flight_requests = 0,
     deferred_review_requests = 0,
   },
@@ -227,13 +227,13 @@ is intentionally outside this plugin's IDE-server integration.
 Enable `review.enabled` to queue comments on several code ranges before sending
 one structured review prompt. The feature adds no mappings. It registers:
 
-| command | action |
-|---|---|
-| `:HerdrReviewComment` | comment the current line or visual/ranged lines |
-| `:HerdrReviewList` | list queued comments and jump to one |
-| `:HerdrReviewPaste [agent]` | paste the review prompt without clearing it |
+| command                      | action                                                   |
+| ---------------------------- | -------------------------------------------------------- |
+| `:HerdrReviewComment`        | comment the current line or visual/ranged lines          |
+| `:HerdrReviewList`           | list queued comments and jump to one                     |
+| `:HerdrReviewPaste [agent]`  | paste the review prompt without clearing it              |
 | `:HerdrReviewSubmit [agent]` | submit the review prompt, clearing on success by default |
-| `:HerdrReviewClear` | discard all queued comments |
+| `:HerdrReviewClear`          | discard all queued comments                              |
 
 The Lua module `require("herdr-agents.review")` exposes `add()`, `get()`,
 `list()`, `edit()`, `delete()`, `clear()`, `prompt()`, `paste()`, `submit()`,
@@ -245,14 +245,14 @@ not return delivery status; failures are reported through Neovim notifications.
 
 Any launcher can request an agent when Neovim starts by setting:
 
-| variable | purpose |
-|---|---|
-| `HERDR_NVIM_AGENT` | `claude`, `codex`, or `pi` |
-| `HERDR_NVIM_AGENT_ARGS_JSON` | JSON array of individual CLI arguments; defaults to `[]` |
-| `HERDR_NVIM_AGENT_RECOVER` | set to `1` to recover this editor's existing agent before starting a new one |
+| variable                           | purpose                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `HERDR_NVIM_AGENT`                 | `claude`, `codex`, or `pi`                                                            |
+| `HERDR_NVIM_AGENT_ARGS_JSON`       | JSON array of individual CLI arguments; defaults to `[]`                              |
+| `HERDR_NVIM_AGENT_RECOVER`         | set to `1` to recover this editor's existing agent before starting a new one          |
 | `HERDR_NVIM_AGENT_RECOVER_WAIT_MS` | optional delay before recovery, giving a restoring Herdr server time to resume agents |
-| `HERDR_BIN_PATH` | optional alternative Herdr executable |
-| `HERDR_NVIM_AGENT_START_TIMEOUT` | optional `herdr agent start` timeout in milliseconds; defaults to `30000` |
+| `HERDR_BIN_PATH`                   | optional alternative Herdr executable                                                 |
+| `HERDR_NVIM_AGENT_START_TIMEOUT`   | optional `herdr agent start` timeout in milliseconds; defaults to `30000`             |
 
 For example:
 
