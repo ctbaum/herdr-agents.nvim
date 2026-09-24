@@ -1,5 +1,7 @@
 local source = debug.getinfo(1, "S").source:sub(2)
 vim.opt.runtimepath:prepend(vim.fn.fnamemodify(source, ":p:h:h"))
+vim.env.HERDR_NVIM_AGENT_SPLIT_SIDE = nil
+vim.env.HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE = nil
 local herdr = require("herdr-agents.herdr")
 assert(vim.deep_equal(assert(herdr.shell_words([[claude '--resume' 'id with spaces' 'it'"'"'s']])),
   { "claude", "--resume", "id with spaces", "it's" }))
@@ -176,6 +178,22 @@ local function count_call(scope, command)
   end
   return count
 end
+
+reset()
+vim.env.HERDR_NVIM_AGENT_SPLIT_SIDE = "left"
+vim.env.HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE = "0.4"
+local launcher = herdr.provider(opts)
+assert(launcher.open("claude", {}, { split_side = "right", split_width_percentage = 0.3 }, false))
+local launcher_pane = launcher.pane()
+assert(vim.iter(calls):any(function(call)
+  return call[2] == "split" and call[7] == "0.4"
+end))
+assert(vim.iter(calls):any(function(call)
+  return call[2] == "swap" and call[4] == "editor" and call[6] == launcher_pane
+end))
+assert(launcher.close())
+vim.env.HERDR_NVIM_AGENT_SPLIT_SIDE = nil
+vim.env.HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE = nil
 
 reset()
 local left = herdr.provider(opts)

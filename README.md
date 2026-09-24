@@ -249,6 +249,8 @@ Any launcher can request an agent when Neovim starts by setting:
 | ---------------------------------- | ------------------------------------------------------------------------------------- |
 | `HERDR_NVIM_AGENT`                 | `claude`, `codex`, or `pi`                                                            |
 | `HERDR_NVIM_AGENT_ARGS_JSON`       | JSON array of individual CLI arguments; defaults to `[]`                              |
+| `HERDR_NVIM_AGENT_SPLIT_SIDE`       | optional launcher-owned `left` or `right` pane placement                              |
+| `HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE` | optional launcher-owned agent pane width                                        |
 | `HERDR_NVIM_AGENT_RECOVER`         | set to `1` to recover this editor's existing agent before starting a new one          |
 | `HERDR_NVIM_AGENT_RECOVER_WAIT_MS` | optional delay before recovery, giving a restoring Herdr server time to resume agents |
 | `HERDR_BIN_PATH`                   | optional alternative Herdr executable                                                 |

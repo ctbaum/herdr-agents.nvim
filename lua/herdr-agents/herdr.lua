@@ -340,8 +340,10 @@ function M.provider(opts)
       launch_args = recovered_args
     end
     local terminal = config or {}
-    local width = tonumber(terminal.split_width_percentage) or 0.3
-    local left = terminal.split_side == "left"
+    local width = tonumber(vim.env.HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE)
+      or tonumber(terminal.split_width_percentage) or 0.3
+    local side = vim.env.HERDR_NVIM_AGENT_SPLIT_SIDE or terminal.split_side
+    local left = side == "left"
     local args = {
       "pane", "split", current.pane_id, "--direction", "right", "--ratio", tostring(left and width or 1 - width),
       "--cwd", terminal.cwd or vim.fn.getcwd(), "--no-focus",
