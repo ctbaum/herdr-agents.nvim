@@ -1,6 +1,6 @@
 local M = {}
 local lock_dir
-local auto_accept = false
+local auto_accept = true
 
 local function paste(payload)
   if not M.provider.paste(payload) then
@@ -46,10 +46,23 @@ function M.review(accept, all, quiet)
   return false
 end
 
+local function save_review_mode()
+  vim.fn.writefile({ auto_accept and "auto-accept" or "review" }, lock_dir .. "/review-mode")
+end
+
+local function set_auto_accept(enabled)
+  auto_accept = enabled
+  save_review_mode()
+  if enabled then M.review(true, true, true) end
+  vim.notify(enabled and "Pi proposals will be accepted automatically" or "Pi proposals now require review")
+end
+
 function M.accept_all()
-  auto_accept = true
-  M.review(true, true, true)
-  vim.notify("Future Pi proposals will be accepted automatically")
+  set_auto_accept(true)
+end
+
+function M.toggle_auto_accept()
+  set_auto_accept(not auto_accept)
 end
 
 function M.open(args)
@@ -70,6 +83,7 @@ function M.setup(opts)
   lock_dir = vim.fn.tempname() .. "-pi-ide"
   assert(vim.uv.fs_mkdir(lock_dir, 448))
   require("pi-ide.lockfile").lock_dir = lock_dir
+  save_review_mode()
   require("pi-ide").setup(vim.tbl_deep_extend("force", {
     suggestion = { auto_trigger = false, default_keys = false },
   }, opts or {}, { auto_start = false, claude_code_compatibility = false }))
@@ -102,6 +116,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PiAdd", M.add_file, {})
   vim.api.nvim_create_user_command("PiDiffAccept", function() M.review(true) end, {})
   vim.api.nvim_create_user_command("PiDiffAcceptAll", M.accept_all, {})
+  vim.api.nvim_create_user_command("PiDiffAutoAcceptToggle", M.toggle_auto_accept, {})
   vim.api.nvim_create_user_command("PiDiffDeny", function() M.review(false) end, {})
   vim.api.nvim_create_autocmd("BufEnter", {
     callback = function(event)

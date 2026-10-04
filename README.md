@@ -122,16 +122,18 @@ panes by their position. Existing sessions are left alone.
 | `:[range]PiSendSelection`        | Paste selected buffer lines, including unsaved text                 |
 | `:PiAdd`                         | Paste the current file's path                                       |
 | `:PiSendDiagnostics`             | Paste current-buffer LSP diagnostics                                |
-| `:PiDiffAccept` / `:PiDiffDeny`  | Accept or reject the proposal in the current tab                    |
-| `:PiDiffAcceptAll`               | Accept open proposals and automatically accept subsequent proposals |
-| `:PiStatus`                      | Show IDE connection status                                          |
+| `:PiDiffAccept` / `:PiDiffDeny`  | Accept or reject the proposal in the current tab                     |
+| `:PiDiffAcceptAll`               | Accept open proposals and enable automatic acceptance                |
+| `:PiDiffAutoAcceptToggle`        | Toggle between automatic acceptance and per-proposal review           |
+| `:PiStatus`                      | Show IDE connection status                                           |
 | `:PiSuggest` / `:PiSuggestModel` | Request an inline suggestion or choose its model                    |
 
 Context commands paste without submitting, giving you a chance to edit the
 prompt. The extension also receives live cursor/selection context, provides
 editor diagnostics and open tabs, and previews its `write`/`edit` tool calls
-as interactive diffs. You can edit the proposed text before accepting it.
-Save the proposed buffer to accept; close a diff window to reject.
+as interactive diffs. Proposals are accepted automatically by default. Toggle
+`:PiDiffAutoAcceptToggle` to inspect and edit each proposal before saving it,
+or close a diff window to reject it.
 
 Automatic suggestions and their default mappings are disabled. Opt in with
 `pi.opts.suggestion`, or map `require("pi-ide.suggestion").trigger()` and

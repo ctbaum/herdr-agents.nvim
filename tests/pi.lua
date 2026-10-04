@@ -35,6 +35,8 @@ assert(vim.deep_equal(require("herdr-agents.herdr").shell_words(launch.command),
 assert(launch.env.PI_IDE_LOCK_DIR == lockfile.lock_dir)
 assert(launch.env.HERDR_PI_IDE_PORT == "4567")
 assert(vim.fn.getfperm(lockfile.lock_dir) == "rwx------")
+local review_mode_file = lockfile.lock_dir .. "/review-mode"
+assert(vim.fn.readfile(review_mode_file)[1] == "auto-accept")
 
 vim.api.nvim_buf_set_name(0, "/tmp/pi selection.lua")
 vim.api.nvim_buf_set_lines(0, 0, -1, false, { "first", "second", "third" })
@@ -82,6 +84,20 @@ vim.api.nvim_create_autocmd("BufWriteCmd", {
   callback = function() accepted_all = accepted_all + 1 end,
 })
 assert(vim.wait(100, function() return accepted_all == 3 end))
+
+vim.cmd("PiDiffAutoAcceptToggle")
+assert(vim.fn.readfile(review_mode_file)[1] == "review")
+local held_for_review = false
+vim.cmd("tabnew")
+local review = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(review, "/tmp/pi review.lua [pi-proposed]")
+vim.bo[review].buftype = "acwrite"
+vim.api.nvim_create_autocmd("BufWriteCmd", { buffer = review, callback = function() held_for_review = true end })
+vim.api.nvim_set_current_buf(review)
+assert(not vim.wait(20, function() return held_for_review end))
+vim.cmd("PiDiffAutoAcceptToggle")
+assert(held_for_review)
+assert(vim.fn.readfile(review_mode_file)[1] == "auto-accept")
 ide.stop()
 vim.fn.delete(lockfile.lock_dir, "d")
 print("herdr-agents Pi test passed")
