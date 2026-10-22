@@ -178,11 +178,11 @@ agents.submit("codex", "Run the tests and fix any failures")
 argument list is encoded safely by the adapter rather than interpreted as a
 shell command. `pane()` returns the currently associated Herdr pane ID.
 `reconnect()` closes that pane and creates a replacement using the supplied
-arguments without stealing editor focus. It is intended for a surviving
-Neovim process that needs to reconnect an agent after a Herdr server restart.
-Automatic recovery uses the same replacement mechanics but obtains resume
-arguments from Herdr's native session metadata. The public `reconnect()` API is
-unchanged.
+arguments without stealing editor focus. It resets the agent pane; it does not
+preserve or restore Neovim state. Automatic recovery uses the same replacement
+mechanics when Neovim starts after an editor relaunch or Herdr restore, but
+obtains resume arguments from Herdr's native session metadata. The public
+`reconnect()` API is unchanged.
 `paste()` inserts text without submitting it; `submit()` sends an atomic prompt
 through Herdr. `send()` remains as a compatibility alias for `paste()`.
 
@@ -271,9 +271,10 @@ not exposed in Herdr process arguments. Herdr's stable agent name, derived from
 the editor pane ID, provides cross-platform pane identity without scanning the
 host process table.
 
-On a later automatic startup, a stable name identifies the previous agent in
-the same tab and workspace for recovery, but global IDE connectivity alone
-never causes that pane to be adopted. The provider verifies its pane and
+On a later automatic startup, including a fresh editor launched after a Herdr
+server restart, a stable name identifies the previous agent in the same tab
+and workspace for recovery, but global IDE connectivity alone never causes
+that pane to be adopted. The provider verifies its pane and
 terminal identity, reads `agent_session`, creates and verifies a replacement
 shell, then closes the old pane and starts the replacement. Claude uses
 `--resume ID`, Codex uses `resume ID`, and Pi uses `--session PATH_OR_ID`;
