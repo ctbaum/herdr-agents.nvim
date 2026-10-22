@@ -49,11 +49,23 @@ local select_callback
 local original_select = vim.ui.select
 vim.ui.select = function(_, _, callback) select_callback = callback end
 review.add(buffer, 1, 1, "Choose asynchronously")
-assert(review.paste() == nil)
+assert(review.submit() == nil)
 assert(#calls == 2, "dispatch ran before the asynchronous agent choice")
 assert(select_callback, "agent picker callback was not registered")
+review.add(buffer, 2, 2, "Added while picker was open")
 select_callback("claude")
-assert(#calls == 3 and calls[3].method == "paste" and calls[3].agent == "claude")
+assert(#calls == 3 and calls[3].method == "submit" and calls[3].agent == "claude")
+assert(calls[3].payload:find("Added while picker was open", 1, true))
+assert(#review.list() == 0)
+
+local modified = vim.api.nvim_create_buf(true, false)
+vim.api.nvim_set_current_buf(modified)
+vim.api.nvim_buf_set_lines(modified, 0, -1, false, { "unsaved" })
+local listed = review.add(buffer, 1, 1, "Navigate without abandoning edits")
+vim.ui.select = function(_, _, callback) callback(review.get(listed)) end
+vim.cmd("HerdrReviewList")
+assert(vim.api.nvim_get_current_buf() == buffer)
+assert(vim.api.nvim_buf_is_valid(modified) and vim.bo[modified].modified)
 vim.ui.select = original_select
 
 assert(vim.fn.exists(":HerdrReviewComment") == 2)

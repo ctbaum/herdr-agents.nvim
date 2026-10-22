@@ -5,11 +5,6 @@ function M.setup(opts)
   local provider = herdr.provider({
     agent = "claude",
     process = "claude",
-    port_env = "CLAUDE_CODE_SSE_PORT",
-    port = function()
-      local ok, plugin = pcall(require, "claudecode")
-      return ok and plugin.state and plugin.state.port or nil
-    end,
     connected = function() return require("claudecode").is_claude_connected() end,
   })
   M.provider = provider
@@ -45,15 +40,16 @@ function M.setup(opts)
 end
 
 function M.open(args)
+  local plugin = require("claudecode")
+  if not plugin.state.server and not plugin.start() then return false end
   local pane = M.provider.pane()
   if pane then
     M.provider.focus(pane)
     return true
   end
   local escaped = vim.tbl_map(vim.fn.shellescape, args or {})
-  local suffix = #escaped > 0 and (" " .. table.concat(escaped, " ")) or ""
-  local ok = pcall(function() vim.cmd("ClaudeCode" .. suffix) end)
-  return ok and M.provider.pane() ~= nil
+  require("claudecode.terminal").simple_toggle({}, #escaped > 0 and table.concat(escaped, " ") or nil)
+  return M.provider.pane() ~= nil
 end
 
 return M

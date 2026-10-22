@@ -13,6 +13,7 @@ require("herdr-agents").setup({ claude = { enabled = false }, codex = { enabled 
 local ide = require("pi-ide")
 ide.start()
 assert(ide.state.running)
+vim.fn.writefile({ "review" }, vim.fn.fnamemodify(ide.state.lockfile_path, ":h") .. "/review-mode")
 local file = vim.fn.fnamemodify(ide.state.lockfile_path, ":h") .. "/pi-ide-test.txt"
 vim.fn.writefile({ "original" }, file)
 vim.cmd("edit " .. vim.fn.fnameescape(file))

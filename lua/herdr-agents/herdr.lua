@@ -74,6 +74,31 @@ function M.json(args)
   return ok and decoded or nil
 end
 
+function M.socket_json(method, params)
+  local path = vim.env.HERDR_SOCKET_PATH
+  if not path or path == "" then return nil end
+  local pipe = assert((vim.uv or vim.loop).new_pipe(false))
+  local response, done
+  local incoming = ""
+  pipe:connect(path, function(connect_error)
+    if connect_error then done = true; return end
+    pipe:read_start(function(read_error, data)
+      if read_error or not data then done = true; return end
+      incoming = incoming .. data
+      local line = incoming:match("([^\n]+)\n")
+      if line then
+        local ok, decoded = pcall(vim.json.decode, line)
+        if ok then response = decoded end
+        done = true
+      end
+    end)
+    pipe:write(vim.json.encode({ id = "herdr-agents", method = method, params = params }) .. "\n")
+  end)
+  vim.wait(5000, function() return done end, 10)
+  if not pipe:is_closing() then pipe:close() end
+  return response
+end
+
 function M.current()
   local id = vim.env.HERDR_PANE_ID
   local result = M.json(id and id ~= "" and { "pane", "current", "--pane", id }
@@ -139,23 +164,6 @@ local function session_reference(pane, agent)
   return type(value) == "string" and value ~= "" and value or nil
 end
 
-local function connected_pane(opts)
-  local port = tonumber(opts.port())
-  if not port or port < 1 or port > 65535 or port % 1 ~= 0 then return nil end
-  local script = string.format(
-    "for pid in $(pgrep -f %s 2>/dev/null); do "
-      .. "if [ -r /proc/$pid/environ ]; then e=$(tr '\\0' '\\n' </proc/$pid/environ); "
-      .. "else e=$(ps eww -p \"$pid\" 2>/dev/null | tr ' ' '\\n'); fi; "
-      .. "printf '%%s\\n' \"$e\" | grep -qx '%s=%s' && "
-      .. "printf '%%s\\n' \"$e\" | sed -n 's/^HERDR_PANE_ID=//p'; "
-      .. "done | head -1",
-    vim.fn.shellescape(opts.process), opts.port_env, tostring(port)
-  )
-  local out = vim.fn.system({ "sh", "-c", script })
-  if vim.v.shell_error ~= 0 then return nil end
-  out = out:gsub("%s+$", "")
-  return out ~= "" and out or nil
-end
 
 -- All paste paths use one literal block, including review prompts and diagnostics.
 function M.bracketed_paste(payload)
@@ -171,6 +179,7 @@ function M.provider(opts)
   local last_pane
   local suppress_next_focus = false
   local recover_next_open = false
+  local retry_args
 
   local function same_terminal(record, pane)
     return pane
@@ -180,20 +189,13 @@ function M.provider(opts)
   end
 
   function provider.pane()
-    local connected = pane_info(connected_pane(opts))
-    if connected and connected.agent == opts.agent then
-      if not owned or owned.pane_id ~= connected.pane_id or not same_terminal(owned, connected) then
-        owned = connected
-      end
-      last_pane = connected
-      return owned.pane_id
-    end
-    if owned then
+    if owned and not owned.failed then
       local pane = pane_info(owned.pane_id)
       if pane and same_terminal(owned, pane) and (owned.starting or pane.agent == opts.agent) then
         last_pane = pane
         return owned.pane_id
       end
+      owned = nil
     end
     last_pane = nil
     return nil
@@ -259,25 +261,19 @@ function M.provider(opts)
     local result = M.json({ "agent", "list" })
     local agents = result and result.result and result.result.agents
     if type(agents) ~= "table" then return nil, "Herdr could not list agent panes" end
-    local exact, legacy = {}, {}
+    local exact = {}
     local expected_name = M.agent_name(opts.agent, current.pane_id)
-    local legacy_prefix = "nvim-" .. opts.agent .. "-"
     for _, pane in ipairs(agents) do
       if pane.agent == opts.agent
         and pane.workspace_id == current.workspace_id
         and pane.tab_id == current.tab_id
+        and pane.name == expected_name
       then
-        if pane.name == expected_name then
-          exact[#exact + 1] = pane
-        elseif type(pane.name) == "string" and pane.name:sub(1, #legacy_prefix) == legacy_prefix then
-          legacy[#legacy + 1] = pane
-        end
+        exact[#exact + 1] = pane
       end
     end
     if #exact == 1 then return exact[1] end
     if #exact > 1 then return nil, "more than one exact agent pane exists" end
-    if #legacy == 1 then return legacy[1] end
-    if #legacy > 1 then return nil, "more than one legacy agent pane exists" end
     return nil
   end
 
@@ -294,7 +290,7 @@ function M.provider(opts)
     end
 
     local pane = pane_info(candidate.pane_id)
-    if not same_terminal(candidate, pane) or pane.agent ~= opts.agent then
+    if not pane or not same_terminal(candidate, pane) or pane.agent ~= opts.agent then
       vim.notify(opts.agent .. ": the recovery pane changed before it could be verified", vim.log.levels.WARN)
       return nil, false
     end
@@ -306,21 +302,17 @@ function M.provider(opts)
       )
       return nil, false
     end
-    if not close(candidate, true) then
-      vim.notify(opts.agent .. ": Herdr could not close the disconnected agent pane", vim.log.levels.ERROR)
-      return nil, false
-    end
-    if same_terminal(candidate, pane_info(candidate.pane_id)) then
-      vim.notify(opts.agent .. ": the disconnected agent pane remained open", vim.log.levels.ERROR)
-      return nil, false
-    end
-    return M.resume_args(opts.agent, launch_args, session), true
+    return M.resume_args(opts.agent, launch_args, session), true, candidate
   end
 
   function provider.open(cmd, env, config, should_focus)
     local recovering = recover_next_open
     recover_next_open = false
     if suppress_next_focus then should_focus, suppress_next_focus = false, false end
+    if owned and owned.failed and not close(owned) then
+      vim.notify(opts.agent .. ": Herdr could not clean up the failed agent pane", vim.log.levels.ERROR)
+      return false
+    end
     local existing = provider.pane()
     if existing then
       if should_focus then provider.focus(existing) end
@@ -331,32 +323,43 @@ function M.provider(opts)
       vim.notify(("%s: cannot launch through Herdr: %s"):format(opts.agent, parse_error), vim.log.levels.ERROR)
       return false
     end
+    local has_current_args = #launch_args > 0
     if opts.args then vim.list_extend(launch_args, opts.args()) end
+    if retry_args and not has_current_args then
+      launch_args = vim.deepcopy(retry_args)
+    elseif has_current_args then
+      retry_args = nil
+    end
     local current = M.current()
     if not current then return false end
+    local recovery_pane
     if recovering then
-      local recovered_args, ok = recover(current, launch_args)
+      local recovered_args, ok, candidate = recover(current, launch_args)
       if not ok then return false end
-      launch_args = recovered_args
+      launch_args, recovery_pane = assert(recovered_args), candidate
     end
+    local final_args = assert(launch_args)
     local terminal = config or {}
     local width = tonumber(vim.env.HERDR_NVIM_AGENT_SPLIT_WIDTH_PERCENTAGE)
       or tonumber(terminal.split_width_percentage) or 0.3
     local side = vim.env.HERDR_NVIM_AGENT_SPLIT_SIDE or terminal.split_side
     local left = side == "left"
-    local args = {
-      "pane", "split", current.pane_id, "--direction", "right", "--ratio", tostring(left and width or 1 - width),
-      "--cwd", terminal.cwd or vim.fn.getcwd(), "--no-focus",
-    }
-    local keys = vim.tbl_keys(env or {})
-    table.sort(keys)
-    for _, key in ipairs(keys) do
-      vim.list_extend(args, { "--env", key .. "=" .. tostring(env[key]) })
-    end
-    local result = M.json(args)
+    local result = M.socket_json("pane.split", {
+      target_pane_id = current.pane_id,
+      direction = "right",
+      ratio = left and width or 1 - width,
+      cwd = terminal.cwd or vim.fn.getcwd(),
+      focus = false,
+      env = env or vim.empty_dict(),
+    })
     local record = result and result.result and result.result.pane
     if not (record and record.pane_id and record.terminal_id) then
       vim.notify(opts.agent .. ": Herdr could not create the agent pane", vim.log.levels.ERROR)
+      return false
+    end
+    if not same_terminal(record, pane_info(record.pane_id)) then
+      M.json({ "pane", "close", record.pane_id })
+      vim.notify(opts.agent .. ": the new agent pane could not be verified", vim.log.levels.ERROR)
       return false
     end
     if left and not M.json({
@@ -366,21 +369,28 @@ function M.provider(opts)
       vim.notify(opts.agent .. ": Herdr could not place the agent pane", vim.log.levels.ERROR)
       return false
     end
+    if recovery_pane then
+      if not close(recovery_pane, true) or same_terminal(recovery_pane, pane_info(recovery_pane.pane_id)) then
+        M.json({ "pane", "close", record.pane_id })
+        vim.notify(opts.agent .. ": Herdr could not close the disconnected agent pane", vim.log.levels.ERROR)
+        return false
+      end
+    end
     owned, record.starting = record, true
     local argv = {
       binary(), "agent", "start", M.agent_name(opts.agent, current.pane_id),
       "--kind", opts.agent, "--pane", record.pane_id,
       "--timeout", vim.env.HERDR_NVIM_AGENT_START_TIMEOUT or "30000",
     }
-    if #launch_args > 0 then
+    if #final_args > 0 then
       argv[#argv + 1] = "--"
-      vim.list_extend(argv, launch_args)
+      vim.list_extend(argv, final_args)
     end
     local attempts = 0
     local function start()
       if owned ~= record or record.cancelled then return false end
       if not same_terminal(record, pane_info(record.pane_id)) then
-        owned = nil
+        retry_args, owned = vim.deepcopy(final_args), nil
         return false
       end
       attempts = attempts + 1
@@ -397,7 +407,7 @@ function M.provider(opts)
             if owned ~= record or record.cancelled then return end
             record.job = nil
             if code == 0 then
-              record.starting = false
+              record.starting, retry_args = false, nil
               -- Codex leaves the injected shell command above its inline TUI.
               if opts.agent == "codex" then M.json({ "agent", "send-keys", record.pane_id, "ctrl+l" }) end
               if should_focus and provider.pane() == record.pane_id then provider.focus(record.pane_id) end
@@ -409,14 +419,16 @@ function M.provider(opts)
                 ("%s: herdr agent start exited with status %d%s")
                   :format(opts.agent, code, detail ~= "" and (": " .. detail) or ""), vim.log.levels.ERROR
               )
-              close(record)
+              retry_args = vim.deepcopy(final_args)
+              if not close(record) then record.failed, record.starting = true, false end
             end
           end)
         end,
       })
       if record.job <= 0 then
         vim.notify(opts.agent .. ": Herdr could not start the agent", vim.log.levels.ERROR)
-        close(record)
+        retry_args = vim.deepcopy(final_args)
+        if not close(record) then record.failed, record.starting = true, false end
         return false
       end
       return true

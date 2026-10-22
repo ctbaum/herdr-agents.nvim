@@ -155,12 +155,13 @@ local function choose_agent(requested, callback)
 end
 
 local function dispatch(method, agent)
-  local payload = M.prompt()
-  if not payload then
+  if #M.list() == 0 then
     vim.notify("No queued review comments", vim.log.levels.INFO)
     return
   end
   choose_agent(agent, function(selected)
+    local payload = M.prompt()
+    if not payload then return end
     local dispatched = transport[method](selected, payload)
     if not dispatched then
       vim.notify("No connected " .. selected .. " pane found", vim.log.levels.WARN)
@@ -206,7 +207,7 @@ local function list_interactive()
     if not item then
       return
     end
-    vim.api.nvim_set_current_buf(item.bufnr)
+    vim.cmd("hide buffer " .. item.bufnr)
     vim.api.nvim_win_set_cursor(0, { item.first, 0 })
     vim.cmd("normal! zz")
   end)

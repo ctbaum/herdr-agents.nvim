@@ -25,12 +25,14 @@ assert(vim.deep_equal(
 ))
 
 local calls, jobs, panes, deferred, listed_agents = {}, {}, {}, {}, nil
-local serial, match, close_fail, close_keeps_pane = 0, nil, false, false
+local serial, close_fail, close_keeps_pane = 0, false, false
+local split_env
+local ide_connected = true
 local notifications = {}
 vim.notify = function(message, level) notifications[#notifications + 1] = { message = message, level = level } end
 vim.fn.system = function(argv)
   calls[#calls + 1] = vim.deepcopy(argv)
-  return argv[1] == "sh" and (match or "") or ""
+  return ""
 end
 vim.fn.jobstart = function(argv, opts)
   jobs[#jobs + 1] = { argv = argv, opts = opts }
@@ -46,15 +48,6 @@ herdr.json = function(argv)
     return panes[argv[3]] and { result = { pane = vim.deepcopy(panes[argv[3]]) } }
   elseif argv[1] == "agent" and argv[2] == "list" then
     return { result = { agents = vim.deepcopy(listed_agents or vim.tbl_values(panes)) } }
-  elseif argv[2] == "split" then
-    serial = serial + 1
-    local id = "w4W:p" .. serial
-    local cwd
-    for index, value in ipairs(argv) do
-      if value == "--cwd" then cwd = argv[index + 1] end
-    end
-    panes[id] = { pane_id = id, terminal_id = "term_" .. serial, cwd = cwd }
-    return { result = { pane = vim.deepcopy(panes[id]) } }
   elseif argv[2] == "swap" then
     return { result = {} }
   elseif argv[2] == "close" then
@@ -63,19 +56,27 @@ herdr.json = function(argv)
     return { result = {} }
   end
 end
+herdr.socket_json = function(method, params)
+  assert(method == "pane.split")
+  calls[#calls + 1] = { "pane", "split", vim.deepcopy(params) }
+  split_env = vim.deepcopy(params.env)
+  serial = serial + 1
+  local id = "w4W:p" .. serial
+  panes[id] = { pane_id = id, terminal_id = "term_" .. serial, cwd = params.cwd }
+  return { result = { pane = vim.deepcopy(panes[id]) } }
+end
 for _, agent in ipairs({ "claude", "codex", "pi" }) do
   panes.other = { agent = agent, pane_id = "other", terminal_id = "unrelated", tab_id = "tab", workspace_id = "workspace" }
-  local provider = herdr.provider({ agent = agent, process = agent, port_env = "TEST_PORT", port = function() return 4567 end })
+  local provider = herdr.provider({ agent = agent, process = agent })
   assert(provider.pane() == nil, "must not adopt an unrelated same-tab agent")
   local stopped = provider.status()
   assert(stopped.state == "stopped" and stopped.herdr_activity == nil and stopped.session_id == nil)
   assert(provider.close())
   assert(panes.other, "must not close an unrelated agent")
 end
-local opts = { agent = "claude", process = "claude", port_env = "TEST_PORT", port = function() return 4567 end,
-  connected = function() return true end }
+local opts = { agent = "claude", process = "claude", connected = function() return ide_connected end }
 local provider = herdr.provider(opts)
-assert(provider.open("claude --resume session-1", {}, { cwd = "/explicit/cwd" }, false))
+assert(provider.open("claude --resume session-1", { TEST_TOKEN = "private-value" }, { cwd = "/explicit/cwd" }, false))
 local first = provider.pane()
 local starting = provider.status()
 assert(starting.state == "starting" and starting.ide_connected)
@@ -84,14 +85,22 @@ assert(starting.herdr_activity == nil and starting.session_id == nil)
 assert(not provider.paste("too early"))
 assert(provider.open("claude", {}, nil, false) and #jobs == 0)
 assert(vim.iter(calls):any(function(call)
-  return call[2] == "split" and call[7] == "0.7" and call[9] == "/explicit/cwd"
+  return call[2] == "split" and call[3].ratio == 0.7 and call[3].cwd == "/explicit/cwd"
 end))
 assert(not vim.iter(calls):any(function(call) return call[2] == "swap" end))
+assert(split_env.TEST_TOKEN == "private-value" and vim.env.TEST_TOKEN == nil)
+assert(not vim.iter(calls):any(function(call)
+  if call[2] == "split" then return false end
+  return vim.iter(call):any(function(arg) return tostring(arg):find("private-value", 1, true) ~= nil end)
+end), "environment values must not appear in process arguments")
 assert(#deferred == 1)
 deferred[1]()
 assert(jobs[1].argv[4] == "nvim-claude-editor")
 assert(jobs[1].argv[#jobs[1].argv] == "session-1")
 panes[first].agent = "claude"
+panes[first].name = "nvim-claude-editor"
+panes[first].tab_id = "tab"
+panes[first].workspace_id = "workspace"
 panes[first].agent_status = "working"
 panes[first].foreground_cwd = "/foreground/cwd"
 panes[first].agent_session = { agent = "claude", kind = "id", value = "session-1" }
@@ -107,10 +116,8 @@ assert(provider.paste("first\nsecond", { focus = false }))
 assert(calls[#calls][5] == "\27[200~first\nsecond\27[201~")
 assert(provider.submit("submit", { focus = false }))
 assert(calls[#calls][2] == "agent" and calls[#calls][3] == "prompt")
-match = first
 local recovered = herdr.provider(opts)
-assert(recovered.pane() == first, "recover matching process environment")
-match = nil
+assert(recovered.pane() == nil, "must not adopt a named pane based on another IDE client")
 panes[first].agent = nil
 assert(provider.pane() == nil and not provider.paste("not a shell command"))
 assert(provider.open("claude", {}, nil, false))
@@ -155,8 +162,8 @@ assert(codex.close())
 
 local function reset()
   calls, jobs, panes, deferred, listed_agents = {}, {}, {}, {}, nil
-  serial, match, close_fail, close_keeps_pane = 0, nil, false, false
-  notifications = {}
+  serial, close_fail, close_keeps_pane = 0, false, false
+  split_env, ide_connected, notifications = nil, false, {}
 end
 
 local function pane(id, name, session)
@@ -186,7 +193,7 @@ local launcher = herdr.provider(opts)
 assert(launcher.open("claude", {}, { split_side = "right", split_width_percentage = 0.3 }, false))
 local launcher_pane = launcher.pane()
 assert(vim.iter(calls):any(function(call)
-  return call[2] == "split" and call[7] == "0.4"
+  return call[2] == "split" and call[3].ratio == 0.4
 end))
 assert(vim.iter(calls):any(function(call)
   return call[2] == "swap" and call[4] == "editor" and call[6] == launcher_pane
@@ -200,7 +207,7 @@ local left = herdr.provider(opts)
 assert(left.open("claude", {}, { split_side = "left", split_width_percentage = 0.4 }, false))
 local left_pane = left.pane()
 assert(vim.iter(calls):any(function(call)
-  return call[2] == "split" and call[7] == "0.4"
+  return call[2] == "split" and call[3].ratio == 0.4
 end))
 assert(vim.iter(calls):any(function(call)
   return call[2] == "swap" and call[4] == "editor" and call[6] == left_pane
@@ -208,6 +215,7 @@ end))
 assert(left.close())
 
 reset()
+ide_connected = false
 panes.old = pane("old", "nvim-claude-editor", "native-session")
 local exact = herdr.provider(opts)
 exact.recover_once()
@@ -221,12 +229,12 @@ assert(vim.deep_equal(vim.list_slice(jobs[1].argv, 12), {
 }))
 
 reset()
+ide_connected = true
 panes.connected = pane("connected", "nvim-claude-editor", "native-session")
-match = "connected"
 local connected = herdr.provider(opts)
 connected.recover_once()
 assert(connected.open("claude", {}, nil, false))
-assert(connected.pane() == "connected" and count_call("pane", "split") == 0)
+assert(not panes.connected and connected.pane() ~= "connected" and count_call("pane", "split") == 1)
 
 reset()
 panes.old = pane("old", "nvim-claude-editor", nil)
@@ -250,7 +258,7 @@ close_fail = true
 local failed_close = herdr.provider(opts)
 failed_close.recover_once()
 assert(not failed_close.open("claude", {}, nil, false))
-assert(panes.old and count_call("pane", "split") == 0)
+assert(panes.old and count_call("pane", "split") == 1, "replacement shell must exist before closing the old pane")
 
 reset()
 panes.old = pane("old", "nvim-claude-editor", "native-session")
@@ -258,15 +266,15 @@ close_keeps_pane = true
 local incomplete_close = herdr.provider(opts)
 incomplete_close.recover_once()
 assert(not incomplete_close.open("claude", {}, nil, false))
-assert(panes.old and count_call("pane", "split") == 0)
+assert(panes.old and count_call("pane", "split") == 1, "replacement shell must exist before closing the old pane")
 
 reset()
 panes.legacy1 = pane("legacy1", "nvim-claude-old-agent-pane", "session-1")
 panes.legacy2 = pane("legacy2", "nvim-claude-other-agent-pane", "session-2")
 local ambiguous = herdr.provider(opts)
 ambiguous.recover_once()
-assert(not ambiguous.open("claude", {}, nil, false))
-assert(panes.legacy1 and panes.legacy2 and count_call("pane", "close") == 0 and count_call("pane", "split") == 0)
+assert(ambiguous.open("claude", {}, nil, false))
+assert(panes.legacy1 and panes.legacy2 and count_call("pane", "close") == 0 and count_call("pane", "split") == 1)
 
 reset()
 panes.legacy = pane("legacy", "nvim-claude-old-agent-pane", "legacy-session")
@@ -276,9 +284,32 @@ panes.unrelated = vim.tbl_extend("force", pane("unrelated", "nvim-claude-other",
 local legacy = herdr.provider(opts)
 legacy.recover_once()
 assert(legacy.open("claude --dangerously-skip-permissions", {}, nil, false))
-assert(not panes.legacy and panes.unrelated and count_call("pane", "close") == 1 and count_call("pane", "split") == 1)
+assert(panes.legacy and panes.unrelated and count_call("pane", "close") == 0 and count_call("pane", "split") == 1)
 deferred[1]()
 assert(vim.deep_equal(vim.list_slice(jobs[1].argv, 12), {
-  "--resume", "legacy-session", "--dangerously-skip-permissions",
+  "--dangerously-skip-permissions",
 }))
+
+reset()
+local failed = herdr.provider(opts)
+assert(failed.open("claude --model retained", {}, nil, false))
+deferred[1]()
+close_fail = true
+jobs[1].opts.on_exit(1, 1)
+assert(vim.wait(100, function() return failed.status().state == "stopped" end))
+assert(not failed.open("claude --model corrected", {}, nil, false), "failed cleanup must not remain starting")
+close_fail = false
+assert(failed.open("claude --model corrected", {}, nil, false))
+deferred[2]()
+assert(jobs[2].argv[#jobs[2].argv] == "corrected", "current arguments must replace failed launch arguments")
+
+reset()
+local retry = herdr.provider(opts)
+assert(retry.open("claude --model retained", {}, nil, false))
+deferred[1]()
+jobs[1].opts.on_exit(1, 1)
+assert(vim.wait(100, function() return retry.status().state == "stopped" end))
+assert(retry.open("claude", {}, nil, false))
+deferred[2]()
+assert(jobs[2].argv[#jobs[2].argv] == "retained", "an argument-free retry must retain failed launch arguments")
 print("herdr-agents provider identity, lifecycle, framing, and parsing tests passed")

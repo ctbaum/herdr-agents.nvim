@@ -27,8 +27,6 @@ binary, installs no mappings, and reserves no leader namespace.
 - The upstream plugin for each enabled agent
 - [`folke/snacks.nvim`](https://github.com/folke/snacks.nvim), required by the
   upstream plugins
-- `pgrep`, `ps` or Linux `/proc`, `grep`, `sed`, `tr`, and `sh` for
-  connection-true pane identity
 
 Enable the Claude and Codex adapters only inside Herdr. Outside Herdr,
 configure those upstream plugins normally. The Pi adapter also works outside
@@ -267,24 +265,21 @@ nvim
 ```
 
 The provider uses `herdr agent start` to wait for the new pane's interactive
-shell, launch the supported agent, and verify that Herdr detects it. The pane
-inherits the upstream IDE/MCP environment created by Neovim. After launch, the
-provider first matches the IDE/MCP port in the agent process environment to
-recover its exact `HERDR_PANE_ID`.
+shell, launch the supported agent, and verify that Herdr detects it. IDE/MCP
+environment values are sent in the local socket request that creates the pane,
+not exposed in Herdr process arguments. Herdr's stable agent name, derived from
+the editor pane ID, provides cross-platform pane identity without scanning the
+host process table.
 
-Recovery names every new agent from its editor pane ID. On a later automatic
-startup, an agent already connected to the new IDE endpoint is reused. If the
-stable name identifies a disconnected agent in the same tab and workspace,
-the provider verifies its pane and terminal identity, reads `agent_session`,
-closes it, and starts exactly one replacement. Claude uses `--resume ID`,
-Codex uses `resume ID`, and Pi uses `--session PATH_OR_ID`; other launch flags
-are preserved and stale resume arguments are replaced.
-
-For agents created before stable names, recovery accepts a legacy
-`nvim-{agent}-*` name only when exactly one candidate of the expected type
-exists in the editor's tab and workspace. It never chooses between ambiguous
-candidates. If the pane changes, closure fails, or no usable native session
-reference exists, the existing pane is left alone and no duplicate is created.
+On a later automatic startup, a stable name identifies the previous agent in
+the same tab and workspace for recovery, but global IDE connectivity alone
+never causes that pane to be adopted. The provider verifies its pane and
+terminal identity, reads `agent_session`, creates and verifies a replacement
+shell, then closes the old pane and starts the replacement. Claude uses
+`--resume ID`, Codex uses `resume ID`, and Pi uses `--session PATH_OR_ID`;
+other launch flags are preserved and stale resume arguments are replaced.
+Legacy names are never adopted. If the pane changes, closure fails, or no
+usable native session reference exists, the existing pane is left alone.
 Native references come from supported Herdr integrations; see [Herdr session
 restore](https://raw.githubusercontent.com/herdrdev/herdr/v0.9.0/docs/next/website/src/content/docs/session-state.mdx).
 
@@ -326,8 +321,8 @@ A conforming adapter should:
   mentions, or diffs;
 - implement the existing `open`, `pane`, `focus`, `status`, `reconnect`,
   `paste`, and `submit` behavior through the shared providers;
-- identify the connected pane from a unique IDE endpoint in the agent process
-  environment and verify terminal identity—never infer ownership from layout;
+- derive a stable recovery name from the editor pane ID and verify terminal
+  identity; never infer connected-pane ownership from a name or layout;
 - leave panes and sessions untouched when identity or recovery is ambiguous,
   and implement the agent's native resume syntax before enabling recovery;
 - preserve upstream options while forcing only transport and security

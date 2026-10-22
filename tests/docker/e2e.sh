@@ -4,6 +4,20 @@
 set -eu
 
 mkdir -p "$HOME" "$XDG_CONFIG_HOME"
+rm -f /tmp/herdr-fake-socket-ready
+python3 tests/docker/fake-herdr-socket.py &
+fake_socket_pid=$!
+cleanup_fake() {
+  kill "$fake_socket_pid" 2>/dev/null || true
+  wait "$fake_socket_pid" 2>/dev/null || true
+  rm -f "$HERDR_SOCKET_PATH" /tmp/herdr-fake-socket-ready
+}
+trap cleanup_fake EXIT
+for _ in $(seq 1 100); do
+  [ -f /tmp/herdr-fake-socket-ready ] && break
+  sleep 0.01
+done
+test -f /tmp/herdr-fake-socket-ready
 
 nvim --headless -u NONE -l tests/diagnostics.lua
 nvim --headless -u NONE -l tests/health.lua
@@ -36,32 +50,17 @@ for agent in claude codex; do
   grep -q '^pane close agent-pane$' /tmp/herdr-commands.log
   grep -q '^agent start .* restored-session' /tmp/herdr-commands.log
   if [ "$agent" = claude ]; then
-    grep -q -- '--env CLAUDE_CODE_SSE_PORT=' /tmp/herdr-commands.log
+    grep -q -- '--env CLAUDE_CODE_SSE_PORT' /tmp/herdr-commands.log
     grep -q -- '^agent start .* -- --dangerously-skip-permissions$' /tmp/herdr-commands.log
   else
-    grep -q -- '--env CODEX_CODE_SSE_PORT=' /tmp/herdr-commands.log
+    grep -q -- '--env CODEX_CODE_SSE_PORT' /tmp/herdr-commands.log
     grep -q -- '^agent start .* -- --dangerously-bypass-approvals-and-sandbox' /tmp/herdr-commands.log
   fi
-  : >/tmp/herdr-commands.log
-  rm -f /tmp/herdr-agent-spawned
-  (sleep 0.2; touch /tmp/herdr-agent-spawned) &
-  restore_pid=$!
-  export HERDR_NVIM_AGENT_RECOVER_WAIT_MS=500
-  nvim --headless --cmd 'lua require("herdr-agents").setup()' \
-    "+lua vim.defer_fn(function() assert(require('herdr-agents').pane('$agent') == 'agent-pane'); vim.cmd('qa!') end, 1500)"
-  wait "$restore_pid"
-  unset HERDR_NVIM_AGENT_RECOVER_WAIT_MS
-  test "$(grep -c '^pane close agent-pane$' /tmp/herdr-commands.log)" -eq 1
-  test "$(grep -c '^pane split nvim-pane ' /tmp/herdr-commands.log)" -eq 1
-  test "$(grep -c "^agent start nvim-$agent-nvim-pane " /tmp/herdr-commands.log)" -eq 1
-  if [ "$agent" = claude ]; then
-    grep -q -- '-- --resume restored-session --dangerously-skip-permissions$' /tmp/herdr-commands.log
-  else
-    grep -q -- '-- resume restored-session --dangerously-bypass-approvals-and-sandbox' /tmp/herdr-commands.log
-  fi
-  echo "[ok] $agent relaunched with one replacement on its native session"
+  echo "[ok] $agent launch, reconnect, and private socket environment"
 done
 
+cleanup_fake
+trap - EXIT
 printf "%s\n" "PROMPT='HD# '" >"$HOME/.zshrc"
 session="herdr-agents-e2e"
 SHELL=/bin/zsh herdr-real --session "$session" server >/tmp/herdr-real-server.log 2>&1 &
@@ -115,7 +114,11 @@ for agent in claude codex; do
   grep -qx true "$ready_file"
 
   panes=$(herdr-real --session "$session" pane list --workspace "$workspace")
-  test "$(printf '%s' "$panes" | jq '.result.panes | length')" -eq 2
+  if [ "$(printf '%s' "$panes" | jq '.result.panes | length')" -ne 2 ]; then
+    cat "/tmp/herdr-agents-real-${agent}-debug" >&2
+    herdr-real --session "$session" pane read "$root" --source recent-unwrapped --lines 80 --format text >&2
+    exit 1
+  fi
   agent_pane=$(printf '%s' "$panes" | jq -r --arg root "$root" '.result.panes[] | select(.pane_id != $root) | .pane_id')
   herdr-real --session "$session" pane wait-output "$agent_pane" --match "$agent" --timeout 8000 >/dev/null
   herdr-real --session "$session" pane read "$agent_pane" --source recent-unwrapped --lines 40 --format text | grep -q "$agent.*$args"

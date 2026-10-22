@@ -22,8 +22,6 @@ function M.setup(opts)
   local provider = require("herdr-agents.herdr").provider({
     agent = "codex",
     process = "codex",
-    port_env = "CODEX_CODE_SSE_PORT",
-    port = function() return plugin.state.port end,
     connected = function() return plugin.is_codex_connected() end,
     args = M.mcp_args,
   })

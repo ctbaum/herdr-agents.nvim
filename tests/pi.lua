@@ -87,6 +87,9 @@ assert(vim.wait(100, function() return accepted_all == 3 end))
 
 vim.cmd("PiDiffAutoAcceptToggle")
 assert(vim.fn.readfile(review_mode_file)[1] == "review")
+vim.cmd("PiDiffAutoAcceptToggle")
+assert(vim.fn.readfile(review_mode_file)[1] == "auto-accept")
+vim.fn.writefile({ "review" }, review_mode_file)
 local held_for_review = false
 vim.cmd("tabnew")
 local review = vim.api.nvim_create_buf(false, true)

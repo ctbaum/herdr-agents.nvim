@@ -1,6 +1,5 @@
 local M = {}
 local lock_dir
-local auto_accept = true
 
 local function paste(payload)
   if not M.provider.paste(payload) then
@@ -46,13 +45,17 @@ function M.review(accept, all, quiet)
   return false
 end
 
-local function save_review_mode()
-  vim.fn.writefile({ auto_accept and "auto-accept" or "review" }, lock_dir .. "/review-mode")
+local function auto_accept_enabled()
+  local ok, mode = pcall(vim.fn.readfile, lock_dir .. "/review-mode")
+  return ok and mode[1] == "auto-accept"
+end
+
+local function save_review_mode(enabled)
+  vim.fn.writefile({ enabled and "auto-accept" or "review" }, lock_dir .. "/review-mode")
 end
 
 local function set_auto_accept(enabled)
-  auto_accept = enabled
-  save_review_mode()
+  save_review_mode(enabled)
   if enabled then M.review(true, true, true) end
   vim.notify(enabled and "Pi proposals will be accepted automatically" or "Pi proposals now require review")
 end
@@ -62,7 +65,7 @@ function M.accept_all()
 end
 
 function M.toggle_auto_accept()
-  set_auto_accept(not auto_accept)
+  set_auto_accept(not auto_accept_enabled())
 end
 
 function M.open(args)
@@ -83,7 +86,7 @@ function M.setup(opts)
   lock_dir = vim.fn.tempname() .. "-pi-ide"
   assert(vim.uv.fs_mkdir(lock_dir, 448))
   require("pi-ide.lockfile").lock_dir = lock_dir
-  save_review_mode()
+  save_review_mode(true)
   require("pi-ide").setup(vim.tbl_deep_extend("force", {
     suggestion = { auto_trigger = false, default_keys = false },
   }, opts or {}, { auto_start = false, claude_code_compatibility = false }))
@@ -91,8 +94,6 @@ function M.setup(opts)
     M.provider = require("herdr-agents.herdr").provider({
       agent = "pi",
       process = "pi",
-      port_env = "HERDR_PI_IDE_PORT",
-      port = function() return require("pi-ide").state.port end,
       connected = function()
         local status = require("herdr-agents.ide").status("pi")
         return status and status.connected or false
@@ -120,9 +121,9 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PiDiffDeny", function() M.review(false) end, {})
   vim.api.nvim_create_autocmd("BufEnter", {
     callback = function(event)
-      if not auto_accept or not proposal(event.buf) then return end
+      if not auto_accept_enabled() or not proposal(event.buf) then return end
       vim.schedule(function()
-        if auto_accept and proposal(event.buf) then
+        if auto_accept_enabled() and proposal(event.buf) then
           vim.api.nvim_buf_call(event.buf, function() vim.cmd("silent write") end)
         end
       end)

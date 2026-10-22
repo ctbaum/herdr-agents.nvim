@@ -28,12 +28,23 @@ function M.provider(opts)
     vim.cmd("startinsert")
   end
 
+  local function remove_terminal()
+    if window and vim.api.nvim_win_is_valid(window) and vim.api.nvim_win_get_buf(window) == buffer then
+      pcall(vim.api.nvim_win_close, window, true)
+    end
+    if buffer and vim.api.nvim_buf_is_valid(buffer) then
+      vim.api.nvim_buf_delete(buffer, { force = true })
+    end
+    buffer, job, window = nil, nil, nil
+  end
+
   function provider.open(command, env, config, should_focus)
     if suppress_focus then should_focus, suppress_focus = false, false end
     if provider.pane() then
       if should_focus then provider.focus() end
       return true
     end
+    remove_terminal()
     local original = vim.api.nvim_get_current_win()
     vim.cmd("botright vnew")
     window, buffer = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
@@ -45,8 +56,7 @@ function M.provider(opts)
       cwd = (config or {}).cwd or vim.fn.getcwd(),
     })
     if job <= 0 then
-      vim.api.nvim_buf_delete(buffer, { force = true })
-      buffer, window, job = nil, nil, nil
+      remove_terminal()
       return false
     end
     vim.bo[buffer].bufhidden = "hide"
@@ -72,8 +82,7 @@ function M.provider(opts)
       vim.fn.jobstop(job)
       vim.fn.jobwait({ job }, 1000)
     end
-    if buffer and vim.api.nvim_buf_is_valid(buffer) then vim.api.nvim_buf_delete(buffer, { force = true }) end
-    buffer, job, window = nil, nil, nil
+    remove_terminal()
   end
 
   function provider.suppress_focus_once() suppress_focus = true end
